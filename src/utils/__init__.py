@@ -1,0 +1,3 @@
+"""
+Utilitários para o bot.
+""" 

@@ -1,0 +1,10 @@
+🏋️‍♂️ GYM NATION Bot 🏋️‍♀️
+
+Assistente de IA para o grupo GYM NATION. Gerencia check-ins, envia mensagens motivacionais, calcula macronutrientes, responde dúvidas fitness e muito mais!
+
+Comandos principais:
+/motivacao - Mensagens motivacionais geradas por IA
+/regras - Mostra as regras do grupo
+/macros - Calcula macronutrientes de receitas
+
+Bot exclusivo para administradores do grupo GYM NATION. Dúvidas? Fale com @seu_username 
