@@ -203,7 +203,7 @@ async def handle_checkin_response(update: Update, context: ContextTypes.DEFAULT_
     response_message = generate_checkin_response(display_name, checkin_count)
     
     # Responde ao usuário com uma mensagem permanente (sem usar send_temporary_message)
-    await update.message.reply_text(response_message)
+    await update.message.reply_text(response_message, parse_mode=ParseMode.HTML)
 
 async def checkinscore_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
@@ -214,8 +214,27 @@ async def checkinscore_command(update: Update, context: ContextTypes.DEFAULT_TYP
         update (Update): Objeto de atualização do Telegram.
         context (ContextTypes.DEFAULT_TYPE): Contexto do callback.
     """
+    # Determina o chat para o qual exibir o scoreboard
+    chat_id = update.effective_chat.id
+    chat_title = None
+    
+    # Verifica se um nome de grupo foi fornecido como argumento
+    if context.args and len(context.args) > 0:
+        target_group_name = ' '.join(context.args)
+        target_chat_id = await mongodb_client._get_chat_id_by_name(target_group_name)
+        
+        if target_chat_id:
+            chat_id = target_chat_id
+            chat_title = target_group_name
+        else:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=f"Não foi possível encontrar o grupo '{target_group_name}'. Verifique o nome e tente novamente."
+            )
+            return
+    
     # Obtém o scoreboard de check-ins
-    scoreboard = await mongodb_client.get_checkin_scoreboard(update.effective_chat.id)
+    scoreboard = await mongodb_client.get_checkin_scoreboard(chat_id)
     
     # Tenta deletar a mensagem de comando
     try:
@@ -226,24 +245,25 @@ async def checkinscore_command(update: Update, context: ContextTypes.DEFAULT_TYP
     if not scoreboard or len(scoreboard) == 0:
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text="Ainda não há check-ins registrados neste chat. 😢"
+            text=f"Ainda não há check-ins registrados {f'no grupo {chat_title}' if chat_title else 'neste chat'}. 😢"
         )
         return
     
     # Obtém estatísticas adicionais
-    total_participants = await mongodb_client.get_total_checkin_participants(update.effective_chat.id)
-    first_checkin_date = await mongodb_client.get_first_checkin_date(update.effective_chat.id)
+    total_participants = await mongodb_client.get_total_checkin_participants(chat_id)
+    first_checkin_date = await mongodb_client.get_first_checkin_date(chat_id)
+    total_checkins = await mongodb_client.count_total_checkins(chat_id)
     
     # Calcula há quantos dias o primeiro check-in foi registrado
     days_since_first_checkin = None
     if first_checkin_date:
         days_since_first_checkin = (datetime.now() - first_checkin_date).days
     
-    # Limita o scoreboard a no máximo 10 usuários
-    scoreboard = scoreboard[:10]
+    # Limita o scoreboard a no máximo 15 usuários
+    scoreboard = scoreboard[:15]
     
-    # Cria a mensagem do scoreboard
-    message = "🏆 *GYM NATION CHECK-INS* 🏆\n\n"
+    # Cria a mensagem do scoreboard com o novo design visual
+    message = f"🏆 <b>GYM NATION CHECK-INS</b> 🏆\n\n"
     
     # Agrupa usuários com a mesma contagem
     grouped_scoreboard = {}
@@ -264,41 +284,38 @@ async def checkinscore_command(update: Update, context: ContextTypes.DEFAULT_TYP
         elif current_position == 3:
             medal = "🥉 "
         else:
-            medal = "▫️ "
+            medal = "🔹 "
         
-        # Processa usuários empatados
+        # Processa usuários com o novo formato
         if len(users) > 1:
-            user_list = []
+            message += f"{medal}<b>{current_position}.</b> (<b>{count}</b> check-ins)\n"
+            # Lista cada usuário empatado em sua própria linha com um ícone
             for user in users:
-                # SEMPRE usa o username com @ se disponível, caso contrário usa o nome
                 display_name = f"@{user['username']}" if user['username'] else user['user_name']
-                user_list.append(display_name)
-            
-            # Formata a lista de usuários empatados
-            users_text = " e ".join([", ".join(user_list[:-1]), user_list[-1]]) if len(user_list) > 1 else user_list[0]
-            message += f"{medal}*{current_position}.* {users_text}: *{count}* check-ins\n"
+                message += f"    👤 {display_name}\n"
         else:
             user = users[0]
-            # SEMPRE usa o username com @ se disponível, caso contrário usa o nome
             display_name = f"@{user['username']}" if user['username'] else user['user_name']
-            message += f"{medal}*{current_position}.* {display_name}: *{count}* check-ins\n"
+            message += f"{medal}<b>{current_position}.</b> {display_name}: <b>{count}</b> check-ins\n"
         
         # Incrementa a posição pelo número de usuários na posição atual
         current_position += len(users)
     
-    # Adiciona estatísticas adicionais
+    # Adiciona mensagem motivacional
     message += "\n💪 Continue mantendo a consistência! 🔥\n"
     
+    # Adiciona estatísticas com formatação melhorada
     if total_participants and days_since_first_checkin is not None:
-        message += f"\n📊 *Estatísticas:*\n"
-        message += f"• *{total_participants}* pessoas já participaram dos check-ins\n"
-        message += f"• Primeiro check-in registrado há *{days_since_first_checkin}* dias\n"
+        message += "\n📊 <b>Estatísticas:</b>\n"
+        message += f"• <b>{total_participants}</b> pessoas já participaram\n"
+        message += f"• <b>{total_checkins}</b> check-ins no total\n"
+        message += f"• Primeiro check-in: <b>{days_since_first_checkin}</b> dias atrás"
     
-    # Envia a mensagem
+    # Envia a mensagem para o chat atual (não para o chat_id consultado)
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=message,
-        parse_mode=ParseMode.MARKDOWN
+        parse_mode=ParseMode.HTML
     )
 
 def generate_checkin_response(user_name: str, checkin_count: int) -> str:
@@ -314,31 +331,31 @@ def generate_checkin_response(user_name: str, checkin_count: int) -> str:
     """
     # Mensagens personalizadas com base no número de check-ins
     if checkin_count == 1:
-        return f"Primeiro check-in de {user_name}! 🎉 Bem-vindo ao GYM NATION!"
+        return f"<b>Primeiro</b> check-in de {user_name}! 🎉 Bem-vindo ao GYM NATION!"
     elif checkin_count == 3:
-        return f"Terceiro check-in de {user_name}! 🔥 Você está criando consistência!"
+        return f"<b>Terceiro</b> check-in de {user_name}! 🔥 Você está criando consistência!"
     elif checkin_count == 5:
-        return f"Quinto check-in de {user_name}! 💪 Você está no caminho certo!"
+        return f"<b>Quinto</b> check-in de {user_name}! 💪 Você está no caminho certo!"
     elif checkin_count == 10:
-        return f"Uau! {user_name} já está no check-in #10! Sua consistência é inspiradora! 🔥"
+        return f"Uau! {user_name} já está no check-in #<b>10</b>! Sua consistência é inspiradora! 🔥"
     elif checkin_count == 30:
-        return f"Um mês de check-ins! {user_name} está construindo um hábito incrível! 🏆"
+        return f"Um <b>mês</b> de check-ins! {user_name} está construindo um hábito incrível! 🏆"
     elif checkin_count == 100:
-        return f"INACREDITÁVEL! {user_name} alcançou 100 check-ins! Você é uma lenda! 👑"
+        return f"INACREDITÁVEL! {user_name} alcançou <b>100</b> check-ins! Você é uma lenda! 👑"
     elif checkin_count % 50 == 0:
-        return f"WOW! {user_name} atingiu {checkin_count} check-ins! Que dedicação impressionante! 🌟"
+        return f"WOW! {user_name} atingiu <b>{checkin_count}</b> check-ins! Que dedicação impressionante! 🌟"
     elif checkin_count % 25 == 0:
-        return f"Parabéns, {user_name}! Você alcançou {checkin_count} check-ins! Continue assim! 🚀"
+        return f"Parabéns, {user_name}! Você alcançou <b>{checkin_count}</b> check-ins! Continue assim! 🚀"
     elif checkin_count % 10 == 0:
-        return f"Mais um marco! {user_name} completou {checkin_count} check-ins! 💯"
+        return f"Mais um marco! {user_name} completou <b>{checkin_count}</b> check-ins! 💯"
     else:
         # Mensagens aleatórias para outros números de check-in
         messages = [
-            f"Check-in #{checkin_count} registrado para {user_name}! 💪",
-            f"{user_name} está em chamas! 🔥 Check-in #{checkin_count}!",
-            f"Mais um dia, mais um check-in para {user_name}! #{checkin_count} 🏋️",
-            f"A consistência de {user_name} é admirável! Check-in #{checkin_count} 👏",
-            f"{user_name} não para! Check-in #{checkin_count} registrado! 🚀"
+            f"Check-in #<b>{checkin_count}</b> registrado para {user_name}! 💪",
+            f"{user_name} está em chamas! 🔥 Check-in #<b>{checkin_count}</b>!",
+            f"Mais um dia, mais um check-in para {user_name}! #<b>{checkin_count}</b> 🏋️",
+            f"A consistência de {user_name} é admirável! Check-in #<b>{checkin_count}</b> 👏",
+            f"{user_name} não para! Check-in #<b>{checkin_count}</b> registrado! 🚀"
         ]
         return messages[checkin_count % len(messages)]
 
@@ -426,7 +443,8 @@ async def confirmcheckin_command(update: Update, context: ContextTypes.DEFAULT_T
             await context.bot.send_message(
                 chat_id=chat_id,
                 text=response_message,
-                reply_to_message_id=target_message.message_id
+                reply_to_message_id=target_message.message_id,
+                parse_mode=ParseMode.HTML
             )
             
             # Tenta deletar a mensagem de comando DEPOIS de enviar a resposta
@@ -444,7 +462,8 @@ async def confirmcheckin_command(update: Update, context: ContextTypes.DEFAULT_T
                 await context.bot.send_message(
                     chat_id=chat_id,
                     text=response_message,
-                    reply_to_message_id=target_message.message_id
+                    reply_to_message_id=target_message.message_id,
+                    parse_mode=ParseMode.HTML
                 )
                 
                 # Tenta deletar a mensagem de comando DEPOIS de enviar a resposta

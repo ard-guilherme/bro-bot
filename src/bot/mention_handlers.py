@@ -59,7 +59,7 @@ CATEGORIES = {
         "keywords": ["progresso", "resultado", "medida", "peso", "balança", "composição", "gordura", "massa", "muscular", "circunferência", "perímetro", "foto", "comparação", "estagnação", "platô"]
     },
     "Off-topic": {
-        "prefix": "Resposta sobre Progresso:",
+        "prefix": "Resposta Off-topic:",
         "emoji": "😜",
         "keywords": []
     }

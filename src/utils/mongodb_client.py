@@ -464,6 +464,23 @@ class MongoDBClient:
             logger.error(f"Erro ao obter data do primeiro check-in: {e}")
             return None
     
+    async def count_total_checkins(self, chat_id: int) -> int:
+        """
+        Conta o número total de check-ins registrados em um chat.
+        
+        Args:
+            chat_id (int): ID do chat.
+            
+        Returns:
+            int: Número total de check-ins.
+        """
+        try:
+            count = await self.db.user_checkins.count_documents({"chat_id": chat_id})
+            return count
+        except PyMongoError as e:
+            logger.error(f"Erro ao contar total de check-ins: {e}")
+            return 0
+    
     async def get_user_checkin_count(self, chat_id: int, user_id: int) -> int:
         """
         Obtém o número de check-ins de um usuário em um chat específico.

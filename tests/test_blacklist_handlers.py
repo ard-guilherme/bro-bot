@@ -874,4 +874,107 @@ async def test_blacklist_button_error(mock_mongodb, mock_is_admin, mock_update, 
     mock_update.callback_query.answer.assert_called_once_with("Erro ao remover item da blacklist")
     
     # Verifica se blacklist_command não foi chamado
-    mock_context.bot.send_message.assert_not_called() 
+    mock_context.bot.send_message.assert_not_called()
+
+@pytest.mark.asyncio
+@patch("src.bot.blacklist_handlers.is_admin")
+@patch("src.bot.blacklist_handlers.mongodb_client")
+async def test_blacklist_command_with_special_characters(mock_mongodb, mock_is_admin, mock_update, mock_context):
+    """
+    Testa o comando /blacklist quando há mensagens com caracteres especiais na blacklist.
+    """
+    # Configura is_admin para retornar True
+    mock_is_admin.return_value = True
+    
+    # Cria itens da blacklist com caracteres especiais
+    now = datetime.now()
+    blacklist_items = [
+        {
+            "_id": ObjectId("60f1a5b5a9c1e2b3c4d5e6f7"),
+            "chat_id": mock_update.effective_chat.id,
+            "message_id": 1001,
+            "user_id": 54321,
+            "user_name": "Test User",
+            "username": "testuser",
+            "message_text": "_teste_ *markdown* [link]",
+            "added_by": 12345,
+            "added_by_name": "Admin (Test)",
+            "added_at": now
+        }
+    ]
+    
+    # Configura mongodb_client.get_blacklist para retornar a lista de itens
+    get_blacklist_mock = AsyncMock()
+    get_blacklist_mock.return_value = blacklist_items
+    mock_mongodb.get_blacklist = get_blacklist_mock
+    
+    # Executa a função
+    await blacklist_command(mock_update, mock_context)
+    
+    # Verifica se is_admin foi chamado corretamente
+    mock_is_admin.assert_called_once_with(mock_update, mock_context)
+    
+    # Verifica se get_blacklist foi chamado com os parâmetros corretos
+    mock_mongodb.get_blacklist.assert_called_once_with(mock_update.effective_chat.id)
+    
+    # Verifica se a mensagem foi enviada corretamente
+    mock_context.bot.send_message.assert_called_once()
+    message_text = mock_context.bot.send_message.call_args[1]["text"]
+    
+    # Verifica se os caracteres especiais foram escapados corretamente
+    assert "\\_teste\\_" in message_text
+    assert "\\*markdown\\*" in message_text
+    assert "\\[link\\]" in message_text
+    assert "Admin \\(Test\\)" in message_text
+    
+    # Verifica se a mensagem de comando foi deletada
+    mock_update.message.delete.assert_called_once()
+
+@pytest.mark.asyncio
+@patch("src.bot.blacklist_handlers.is_admin")
+@patch("src.bot.blacklist_handlers.mongodb_client")
+async def test_blacklist_command_with_long_message(mock_mongodb, mock_is_admin, mock_update, mock_context):
+    """
+    Testa o comando /blacklist quando há mensagens longas que precisam ser truncadas.
+    """
+    # Configura is_admin para retornar True
+    mock_is_admin.return_value = True
+    
+    # Cria uma mensagem longa com mais de 50 caracteres
+    long_message = "Esta é uma mensagem muito longa que precisa ser truncada pois tem mais de 50 caracteres"
+    
+    # Cria itens da blacklist
+    now = datetime.now()
+    blacklist_items = [
+        {
+            "_id": ObjectId("60f1a5b5a9c1e2b3c4d5e6f7"),
+            "chat_id": mock_update.effective_chat.id,
+            "message_id": 1001,
+            "user_id": 54321,
+            "user_name": "Test User",
+            "username": "testuser",
+            "message_text": long_message,
+            "added_by": 12345,
+            "added_by_name": "Admin User",
+            "added_at": now
+        }
+    ]
+    
+    # Configura mongodb_client.get_blacklist para retornar a lista de itens
+    get_blacklist_mock = AsyncMock()
+    get_blacklist_mock.return_value = blacklist_items
+    mock_mongodb.get_blacklist = get_blacklist_mock
+    
+    # Executa a função
+    await blacklist_command(mock_update, mock_context)
+    
+    # Verifica se a mensagem foi enviada corretamente
+    mock_context.bot.send_message.assert_called_once()
+    message_text = mock_context.bot.send_message.call_args[1]["text"]
+    
+    # Verifica se a mensagem foi truncada corretamente
+    truncated_message = "Esta é uma mensagem muito longa que precisa ser..."
+    assert truncated_message in message_text
+    
+    # Verifica se a mensagem de comando foi deletada
+    mock_update.message.delete.assert_called_once() 

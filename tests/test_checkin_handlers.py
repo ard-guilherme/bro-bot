@@ -278,9 +278,8 @@ async def test_handle_checkin_response_with_photo(setup_mocks):
         reaction=["🔥"]
     )
 
-    # Verifica se a mensagem de resposta foi enviada via send_temporary_message com reply=True
-    # Agora usamos send_temporary_message em vez de reply_text
-    mocks["mock_send_temp_msg"].assert_called_once()
+    # Verifica se a mensagem de resposta foi enviada via reply_text
+    mocks["message"].reply_text.assert_called_once()
 
 @pytest.mark.asyncio
 async def test_handle_checkin_response_not_anchor(setup_mocks):
@@ -383,15 +382,8 @@ async def test_handle_checkin_response_success(setup_mocks):
         reaction=["🔥"]
     )
 
-    # Verifica se a mensagem de resposta foi enviada via send_temporary_message com reply=True
-    # Agora usamos send_temporary_message em vez de reply_text
-    mocks["mock_send_temp_msg"].assert_called_once()
-    # Verifica que foi chamado com os argumentos corretos
-    args, kwargs = mocks["mock_send_temp_msg"].call_args
-    assert args[0] == mocks["update"]
-    assert args[1] == mocks["context"]
-    assert isinstance(args[2], str)  # Verifica que o terceiro argumento é uma string (a mensagem)
-    assert kwargs.get("reply") == True
+    # Verifica se a mensagem de resposta foi enviada via reply_text
+    mocks["message"].reply_text.assert_called_once()
 
 @pytest.mark.asyncio
 async def test_handle_checkin_response_text_only(setup_mocks):
@@ -423,6 +415,7 @@ async def test_checkinscore_command_no_checkins(setup_mocks):
     mocks["mock_mongodb_client"].get_checkin_scoreboard = AsyncMock(return_value=[])
     mocks["mock_mongodb_client"].get_total_checkin_participants = AsyncMock(return_value=0)
     mocks["mock_mongodb_client"].get_first_checkin_date = AsyncMock(return_value=None)
+    mocks["mock_mongodb_client"].count_total_checkins = AsyncMock(return_value=0)
     
     # Executa o comando
     await checkinscore_command(mocks["update"], mocks["context"])
@@ -454,6 +447,7 @@ async def test_checkinscore_command_with_checkins(setup_mocks):
     mocks["mock_mongodb_client"].get_checkin_scoreboard = AsyncMock(return_value=scoreboard)
     mocks["mock_mongodb_client"].get_total_checkin_participants = AsyncMock(return_value=4)
     mocks["mock_mongodb_client"].get_first_checkin_date = AsyncMock(return_value=datetime.now() - timedelta(days=30))
+    mocks["mock_mongodb_client"].count_total_checkins = AsyncMock(return_value=25)
     
     # Executa o comando
     await checkinscore_command(mocks["update"], mocks["context"])
@@ -477,10 +471,10 @@ async def test_checkinscore_command_with_checkins(setup_mocks):
     assert "@user4" in message
     
     # Verifica se a mensagem contém as contagens
-    assert "*10*" in message
-    assert "*7*" in message
-    assert "*5*" in message
-    assert "*3*" in message
+    assert "<b>10</b>" in message
+    assert "<b>7</b>" in message
+    assert "<b>5</b>" in message
+    assert "<b>3</b>" in message
     
     # Verifica se a mensagem contém as medalhas
     assert "🥇" in message
@@ -488,15 +482,16 @@ async def test_checkinscore_command_with_checkins(setup_mocks):
     assert "🥉" in message
     
     # Verifica se a mensagem contém as estatísticas adicionais
-    assert "pessoas já participaram dos check-ins" in message
-    assert "Primeiro check-in registrado há" in message
+    assert "pessoas já participaram" in message
+    assert "check-ins no total" in message
+    assert "Primeiro check-in:" in message
     
     # Verifica se a mensagem contém a mensagem motivacional
     assert "Continue mantendo a consistência!" in message
     
     # Verifica se o modo de parse foi definido corretamente
     from telegram.constants import ParseMode
-    assert kwargs["parse_mode"] == ParseMode.MARKDOWN
+    assert kwargs["parse_mode"] == ParseMode.HTML
 
 @pytest.mark.asyncio
 async def test_checkinscore_command_with_many_checkins(setup_mocks):
@@ -505,7 +500,7 @@ async def test_checkinscore_command_with_many_checkins(setup_mocks):
     
     # Cria uma lista com mais de 10 usuários
     scoreboard = []
-    for i in range(1, 15):  # 14 usuários
+    for i in range(1, 20):  # 19 usuários para testar o limite de 15
         scoreboard.append({
             "user_id": i,
             "user_name": f"Usuário {i}",
@@ -514,8 +509,9 @@ async def test_checkinscore_command_with_many_checkins(setup_mocks):
         })
     
     mocks["mock_mongodb_client"].get_checkin_scoreboard = AsyncMock(return_value=scoreboard)
-    mocks["mock_mongodb_client"].get_total_checkin_participants = AsyncMock(return_value=14)
+    mocks["mock_mongodb_client"].get_total_checkin_participants = AsyncMock(return_value=19)
     mocks["mock_mongodb_client"].get_first_checkin_date = AsyncMock(return_value=datetime.now() - timedelta(days=60))
+    mocks["mock_mongodb_client"].count_total_checkins = AsyncMock(return_value=145)
     
     # Executa o comando
     await checkinscore_command(mocks["update"], mocks["context"])
@@ -535,34 +531,46 @@ async def test_checkinscore_command_with_many_checkins(setup_mocks):
     assert "@user2" in message  # Segundo lugar
     
     # Verifica se há informações estatísticas
-    assert "pessoas já participaram dos check-ins" in message
-    assert "Primeiro check-in registrado há" in message
+    assert "pessoas já participaram" in message
+    assert "check-ins no total" in message
+    assert "Primeiro check-in:" in message
 
 def test_generate_checkin_response():
     """Testa a geração de mensagens de resposta para check-ins."""
     # Testa diferentes contagens de check-ins
-    assert generate_checkin_response("Test User", 1) == "Primeiro check-in de Test User! 🎉 Bem-vindo ao GYM NATION!"
-    assert generate_checkin_response("Test User", 3) == "Terceiro check-in de Test User! 🔥 Você está criando consistência!"
-    assert generate_checkin_response("Test User", 5) == "Quinto check-in de Test User! 💪 Você está no caminho certo!"
-    assert generate_checkin_response("Test User", 10) == "Uau! Test User já está no check-in #10! Sua consistência é inspiradora! 🔥"
-    assert generate_checkin_response("Test User", 30) == "Um mês de check-ins! Test User está construindo um hábito incrível! 🏆"
-    assert generate_checkin_response("Test User", 100) == "INACREDITÁVEL! Test User alcançou 100 check-ins! Você é uma lenda! 👑"
+    assert "<b>Primeiro</b>" in generate_checkin_response("Test User", 1)
+    assert "Bem-vindo ao GYM NATION!" in generate_checkin_response("Test User", 1)
+    
+    assert "<b>Terceiro</b>" in generate_checkin_response("Test User", 3)
+    assert "criando consistência!" in generate_checkin_response("Test User", 3)
+    
+    assert "<b>Quinto</b>" in generate_checkin_response("Test User", 5)
+    assert "caminho certo!" in generate_checkin_response("Test User", 5)
+    
+    assert "check-in #<b>10</b>" in generate_checkin_response("Test User", 10)
+    assert "inspiradora!" in generate_checkin_response("Test User", 10)
+    
+    assert "<b>mês</b>" in generate_checkin_response("Test User", 30)
+    assert "hábito incrível!" in generate_checkin_response("Test User", 30)
+    
+    assert "alcançou <b>100</b>" in generate_checkin_response("Test User", 100)
+    assert "lenda!" in generate_checkin_response("Test User", 100)
     
     # Testa múltiplos de 50
-    assert "Test User atingiu 50 check-ins" in generate_checkin_response("Test User", 50)
+    assert "atingiu <b>50</b>" in generate_checkin_response("Test User", 50)
     
     # Testa múltiplos de 25
     assert "Test User" in generate_checkin_response("Test User", 25)
-    assert "25 check-ins" in generate_checkin_response("Test User", 25)
+    assert "<b>25</b>" in generate_checkin_response("Test User", 25)
     
     # Testa múltiplos de 10
     assert "Test User" in generate_checkin_response("Test User", 20)
-    assert "20 check-ins" in generate_checkin_response("Test User", 20)
+    assert "<b>20</b>" in generate_checkin_response("Test User", 20)
     
     # Testa outros números (usando verificações mais flexíveis)
     response = generate_checkin_response("Test User", 7)
     assert "Test User" in response
-    assert "#7" in response or "7" in response
+    assert "#<b>7</b>" in response or "<b>7</b>" in response
 
 @pytest.mark.asyncio
 async def test_confirmcheckin_command_not_admin(setup_mocks):
@@ -700,5 +708,80 @@ async def test_confirmcheckin_command_success(setup_mocks):
         reaction=["🔥"]
     )
     
-    # Verifica se a mensagem de confirmação foi enviada via send_message e não reply_text
-    mocks["context"].bot.send_message.assert_called_once() 
+    # Verifica se a mensagem de confirmação foi enviada via send_message
+    mocks["context"].bot.send_message.assert_called_once()
+
+@pytest.mark.asyncio
+async def test_checkinscore_command_with_group_name(setup_mocks):
+    """Testa o comando /checkinscore com nome de grupo."""
+    mocks = setup_mocks
+    
+    # Configura o argumento do comando
+    mocks["context"].args = ["Test", "Group"]
+    
+    # Configura o mock do MongoDB para buscar o chat pelo nome
+    target_chat_id = 54321  # ID diferente do chat atual
+    mocks["mock_mongodb_client"]._get_chat_id_by_name = AsyncMock(return_value=target_chat_id)
+    
+    # Configura o mock do MongoDB para retornar uma lista de check-ins do grupo alvo
+    scoreboard = [
+        {"user_id": 123, "user_name": "Usuário 1", "username": "user1", "count": 8},
+        {"user_id": 456, "user_name": "Usuário 2", "username": None, "count": 6}
+    ]
+    mocks["mock_mongodb_client"].get_checkin_scoreboard = AsyncMock(return_value=scoreboard)
+    mocks["mock_mongodb_client"].get_total_checkin_participants = AsyncMock(return_value=2)
+    mocks["mock_mongodb_client"].get_first_checkin_date = AsyncMock(return_value=datetime.now() - timedelta(days=15))
+    mocks["mock_mongodb_client"].count_total_checkins = AsyncMock(return_value=14)
+    
+    # Executa o comando
+    await checkinscore_command(mocks["update"], mocks["context"])
+    
+    # Verifica se a função _get_chat_id_by_name foi chamada com o nome do grupo
+    mocks["mock_mongodb_client"]._get_chat_id_by_name.assert_called_once_with("Test Group")
+    
+    # Verifica se o scoreboard foi obtido para o chat correto
+    mocks["mock_mongodb_client"].get_checkin_scoreboard.assert_called_once_with(target_chat_id)
+    mocks["mock_mongodb_client"].get_total_checkin_participants.assert_called_once_with(target_chat_id)
+    mocks["mock_mongodb_client"].get_first_checkin_date.assert_called_once_with(target_chat_id)
+    mocks["mock_mongodb_client"].count_total_checkins.assert_called_once_with(target_chat_id)
+    
+    # Verifica se a mensagem foi enviada para o chat atual
+    mocks["context"].bot.send_message.assert_called_once()
+    args, kwargs = mocks["context"].bot.send_message.call_args
+    assert kwargs["chat_id"] == mocks["chat"].id  # Chat atual, não o target_chat_id
+    
+    # Verifica se a mensagem contém o nome do grupo
+    message = kwargs["text"]
+    assert "Test Group" in message
+    
+    # Verifica se a mensagem contém informações do scoreboard
+    assert "@user1" in message
+    assert "Usuário 2" in message
+    assert "<b>8</b>" in message
+    assert "<b>6</b>" in message
+
+@pytest.mark.asyncio
+async def test_checkinscore_command_group_not_found(setup_mocks):
+    """Testa o comando /checkinscore quando o grupo não é encontrado."""
+    mocks = setup_mocks
+    
+    # Configura o argumento do comando
+    mocks["context"].args = ["Nonexistent", "Group"]
+    
+    # Configura o mock do MongoDB para não encontrar o grupo
+    mocks["mock_mongodb_client"]._get_chat_id_by_name = AsyncMock(return_value=None)
+    
+    # Executa o comando
+    await checkinscore_command(mocks["update"], mocks["context"])
+    
+    # Verifica se a função _get_chat_id_by_name foi chamada com o nome do grupo
+    mocks["mock_mongodb_client"]._get_chat_id_by_name.assert_called_once_with("Nonexistent Group")
+    
+    # Verifica se a mensagem de erro foi enviada
+    mocks["context"].bot.send_message.assert_called_once()
+    args, kwargs = mocks["context"].bot.send_message.call_args
+    assert kwargs["chat_id"] == mocks["chat"].id
+    assert "Não foi possível encontrar o grupo 'Nonexistent Group'" in kwargs["text"]
+    
+    # Verifica que as outras funções não foram chamadas
+    mocks["mock_mongodb_client"].get_checkin_scoreboard.assert_not_called() 

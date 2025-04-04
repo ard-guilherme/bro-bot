@@ -15,6 +15,36 @@ from src.bot.handlers import is_admin, send_temporary_message, delete_message_af
 # Configuração de logging
 logger = logging.getLogger(__name__)
 
+def escape_markdown_v2(text: str) -> str:
+    """
+    Escapa caracteres especiais do MarkdownV2.
+    
+    Args:
+        text (str): Texto para escapar.
+        
+    Returns:
+        str: Texto com caracteres especiais escapados.
+    """
+    special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+    for char in special_chars:
+        text = text.replace(char, f'\\{char}')
+    return text
+
+def escape_markdown_v2_url(url: str) -> str:
+    """
+    Escapa caracteres especiais em URLs para MarkdownV2.
+    
+    Args:
+        url (str): URL para escapar.
+        
+    Returns:
+        str: URL com caracteres especiais escapados.
+    """
+    special_chars = [')', '.', '!', '+', '-', '_', '=', '{', '}', '|']
+    for char in special_chars:
+        url = url.replace(char, f'\\{char}')
+    return url
+
 async def addblacklist_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Handler para o comando /addblacklist.
@@ -168,8 +198,7 @@ async def blacklist_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 text="❌ Grupo não encontrado.\n\n"
                      "Certifique-se de que:\n"
                      "1. O nome do grupo está correto\n"
-                     "2. O bot está no grupo",
-                parse_mode=ParseMode.MARKDOWN
+                     "2. O bot está no grupo"
             )
             return
     else:
@@ -187,73 +216,81 @@ async def blacklist_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if not blacklist or len(blacklist) == 0:
         await context.bot.send_message(
             chat_id=chat_id,
-            text="📋 *BLACKLIST*\n\nNão há mensagens na blacklist deste chat.",
-            parse_mode=ParseMode.MARKDOWN
+            text="📋 BLACKLIST\n\nNão há mensagens na blacklist deste chat."
         )
         return
     
     # Formata a mensagem com as informações da blacklist
-    message = "📋 *BLACKLIST*\n\n"
+    message = "📋 BLACKLIST\n\n"
     keyboard = []
     
     for i, item in enumerate(blacklist, start=1):  # Removida a limitação de 10 itens
-        # Formata data de adição
-        added_at = item.get("added_at", datetime.now()).strftime("%d/%m/%Y %H:%M")
-        
-        # Formata nome de usuário
-        user_name = item.get("user_name", "Usuário desconhecido")
-        username = item.get("username")
-        display_name = f"@{username}" if username else user_name
-        
-        # Formata link da mensagem
-        item_chat_id = item.get("chat_id")
-        message_id = item.get("message_id")
-        
-        # Para grupos, o ID geralmente começa com "-100" e precisa ser formatado para o link
-        # Removendo o prefixo "-100" e mantendo apenas o identificador numérico real do grupo
-        formatted_chat_id = str(item_chat_id)
-        if formatted_chat_id.startswith("-100"):
-            formatted_chat_id = formatted_chat_id[4:]  # Remove os primeiros 4 caracteres ("-100")
-        elif formatted_chat_id.startswith("-"):
-            formatted_chat_id = formatted_chat_id[1:]  # Remove apenas o hífen se não tiver o prefixo "-100"
-        
-        # Gera o link da mensagem
-        message_link = f"https://t.me/c/{formatted_chat_id}/{message_id}"
-        link_text = f"[Ver mensagem]({message_link})"
-        
-        # Formata texto da mensagem (limitado a 50 caracteres)
-        message_text = item.get("message_text", "")
-        if message_text:
-            if len(message_text) > 50:
-                message_text = message_text[:47] + "..."
-            message_text = f"\n_\"{message_text}\"_"
-        
-        # Formata informações do admin
-        added_by_name = item.get("added_by_name", "Admin desconhecido")
-        
-        # Adiciona item à mensagem
-        message += f"*{i}.* {display_name}{message_text}\n"
-        message += f"📅 {added_at} • 👮 {added_by_name} • {link_text}\n\n"
-        
-        # Adiciona botão de remover
-        keyboard.append([
-            InlineKeyboardButton(
-                text=f"🗑️ Remover item {i}",
-                callback_data=f"rmblacklist_{str(item['_id'])}"
-            )
-        ])
+        try:
+            # Formata data de adição
+            added_at = item.get("added_at", datetime.now()).strftime("%d/%m/%Y %H:%M")
+            
+            # Formata nome de usuário
+            user_name = item.get("user_name", "Usuário desconhecido")
+            username = item.get("username")
+            display_name = f"@{username}" if username else user_name
+            
+            # Formata link da mensagem
+            item_chat_id = item.get("chat_id")
+            message_id = item.get("message_id")
+            
+            # Para grupos, o ID geralmente começa com "-100" e precisa ser formatado para o link
+            formatted_chat_id = str(item_chat_id)
+            if formatted_chat_id.startswith("-100"):
+                formatted_chat_id = formatted_chat_id[4:]  # Remove os primeiros 4 caracteres ("-100")
+            elif formatted_chat_id.startswith("-"):
+                formatted_chat_id = formatted_chat_id[1:]  # Remove apenas o hífen
+            
+            # Gera o link da mensagem
+            message_link = f"https://t.me/c/{formatted_chat_id}/{message_id}"
+            
+            # Formata texto da mensagem (limitado a 50 caracteres)
+            message_text = item.get("message_text", "")
+            if message_text:
+                if len(message_text) > 50:
+                    message_text = message_text[:47] + "..."
+                message_text = f'\n"{message_text}"'
+            
+            # Formata informações do admin
+            added_by_name = item.get("added_by_name", "Admin desconhecido")
+            
+            # Adiciona item à mensagem
+            message += f"{i}) {display_name}{message_text}\n"
+            message += f"📅 {added_at} • 👮 {added_by_name} • Ver mensagem: {message_link}\n\n"
+            
+            # Adiciona botão de remover
+            keyboard.append([
+                InlineKeyboardButton(
+                    text=f"🗑️ Remover item {i}",
+                    callback_data=f"rmblacklist_{str(item['_id'])}"
+                )
+            ])
+        except Exception as e:
+            logger.error(f"Erro ao formatar item {i} da blacklist: {e}")
+            continue
     
     # Cria o teclado inline
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    # Envia a mensagem com a blacklist
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text=message,
-        parse_mode=ParseMode.MARKDOWN,
-        disable_web_page_preview=True,  # Impede a pré-visualização dos links
-        reply_markup=reply_markup  # Adiciona os botões
-    )
+    try:
+        # Envia sem formatação Markdown
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=message,
+            disable_web_page_preview=False,  # Permite a pré-visualização dos links
+            reply_markup=reply_markup
+        )
+    except Exception as e:
+        logger.error(f"Erro ao enviar mensagem: {e}")
+        # Mensagem de erro genérica em caso de falha
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="❌ Erro ao exibir a blacklist. Por favor, tente novamente."
+        )
 
 async def rmblacklist_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
