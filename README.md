@@ -1,4 +1,4 @@
-# GYM NATION Bot
+# BRO BOT
 
 Um bot para Telegram desenvolvido para a comunidade GYM NATION de academia e fitness. O bot dá boas-vindas aos novos membros do grupo, incentiva apresentações, fornece mensagens motivacionais e gerencia um sistema de check-in para os membros.
 
