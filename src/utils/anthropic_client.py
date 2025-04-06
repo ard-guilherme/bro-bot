@@ -154,4 +154,115 @@ class AnthropicClient:
             raise Exception(f"Erro de rede ao gerar resposta: {e}")
         except Exception as e:
             logger.error(f"Erro ao chamar a API da Anthropic: {e}")
-            raise Exception(f"Erro ao gerar resposta: {e}") 
+            raise Exception(f"Erro ao gerar resposta: {e}")
+
+    async def generate_motivational_message(self, user_name: str = "guerreiro(a)") -> Optional[str]:
+        """
+        Gera uma mensagem motivacional para um usuário.
+
+        Args:
+            user_name (str): O nome do usuário.
+
+        Returns:
+            Optional[str]: A mensagem motivacional gerada ou None em caso de erro.
+        """
+        if not self.is_configured():
+            logger.warning("Cliente Anthropic não configurado. Não é possível gerar mensagem motivacional.")
+            return None
+
+        prompt = f"""Human: Você é o Bro Bot, um bot de Telegram para uma comunidade fitness chamada GYM NATION. Sua personalidade é engraçada, um pouco sarcástica, motivacional (estilo 'maromba') e autêntica.
+
+Um usuário chamado '{user_name}' acabou de fazer um check-in especial (que vale o dobro de pontos) e incluiu a seguinte mensagem: "{{mensagem_de_checkin}}"
+
+Sua tarefa é gerar uma resposta **CURTA** (máximo 1-2 frases, idealmente apenas alguns emojis ou palavras) para a mensagem dele. A resposta deve:
+1. Ser engraçada e/ou motivacional, com o seu tom característico.
+2. Reconhecer o esforço ou o conteúdo da mensagem do usuário de forma leve.
+3. Ser respeitosa.
+4. **NÃO** mencionar explicitamente os pontos dobrados.
+5. **NÃO** ser genérica. Tente se conectar com o que o usuário escreveu.
+6. Variar as respostas, evite ser repetitivo.
+7. Não use necessariamente o nome do usuário na resposta.
+
+Exemplos de boas respostas:
+- "Boa, {user_name}! Mandou bem demais! 💪"
+- "Isso aí, {user_name}! Shape tá vindo! 🔥"
+- "É O SUPER CHECK-IN!! Dale, {user_name}! 🚀"
+- "{user_name} representando! 👊✨"
+- "Aí sim, {user_name}! Que energia! ⚡"
+- "Só vejo progresso aí, {user_name}! 😎"
+
+Agora, gere a resposta para a mensagem de '{user_name}': "{{mensagem_de_checkin}}"
+
+Assistant:"""
+
+        try:
+            logger.info(f"Gerando mensagem motivacional para {user_name}")
+            response = await self.generate_response(prompt, "{{mensagem_de_checkin}}", max_tokens=50)
+            logger.info(f"Mensagem motivacional gerada para {user_name}: {response}")
+            return response
+        except Exception as e:
+            logger.error(f"Erro inesperado ao gerar mensagem motivacional: {e}")
+            return None
+
+    async def generate_checkin_response(self, user_message: str, user_name: str) -> Optional[str]:
+        """
+        Gera uma resposta curta, engraçada e personalizada para a mensagem de check-in de um usuário.
+
+        Args:
+            user_message (str): O texto da mensagem de check-in do usuário.
+            user_name (str): O nome do usuário.
+
+        Returns:
+            Optional[str]: A mensagem gerada ou None em caso de erro.
+        """
+        if not self.is_configured():
+            logger.warning("Cliente Anthropic não configurado. Não é possível gerar resposta de check-in.")
+            return None
+
+        prompt = f"""Human: Você é o Bro Bot, um bot de Telegram para uma comunidade fitness chamada GYM NATION. Sua personalidade é engraçada, um pouco sarcástica, motivacional (estilo 'maromba') e autêntica.
+
+Um usuário chamado '{user_name}' acabou de fazer um check-in especial (que vale o dobro de pontos) e incluiu a seguinte mensagem: "{user_message}"
+
+Sua tarefa é gerar uma resposta **CURTA** (máximo 1-2 frases, idealmente apenas alguns emojis ou palavras) para a mensagem dele. A resposta deve:
+1. Ser engraçada e/ou motivacional, com o seu tom característico.
+2. Reconhecer o esforço ou o conteúdo da mensagem do usuário de forma leve.
+3. Ser respeitosa.
+4. **NÃO** mencionar explicitamente os pontos dobrados.
+5. **NÃO** ser genérica. Tente se conectar com o que o usuário escreveu.
+6. Variar as respostas, evite ser repetitivo.
+7. **NÃO** use necessariamente o nome do usuário na resposta, só se for necessário.
+8. **NÃO** ser bobo demais, seu humor é bem especial.
+9. **NÃO** use aspas no início e no final da resposta.
+
+Exemplos de boas respostas:
+- "Boa! Mandou bem demais! 💪"
+- "Isso aí, {user_name}! Shape tá vindo! 🔥"
+- "É O SUPER CHECK-IN!! Dale, {user_name}! 🚀"
+- "{user_name} representando! 👊✨"
+- "Aí sim, {user_name}! Que energia! ⚡"
+- "Só vejo progresso aí! 😎"
+
+Agora, gere apenas a resposta para a mensagem de '{user_name}': "{user_message}"
+
+Assistant:"""
+
+        try:
+            logger.info(f"Gerando resposta de check-in para {user_name} com a mensagem: {user_message}")
+            response = await self.generate_response(prompt, "{{mensagem_de_checkin}}", max_tokens=50)
+            logger.info(f"Resposta de check-in gerada para {user_name}: {response}")
+            return response
+        except Exception as e:
+            logger.error(f"Erro inesperado ao gerar resposta de check-in: {e}")
+            return None
+
+    def is_configured(self):
+        """
+        Verifica se o cliente está configurado corretamente.
+
+        Returns:
+            bool: True se o cliente está configurado, False caso contrário.
+        """
+        return self.api_key is not None and self.api_key.startswith("sk-ant-")
+
+# Instância global (opcional, dependendo da estrutura do seu projeto)
+# anthropic_client = AnthropicClient() 

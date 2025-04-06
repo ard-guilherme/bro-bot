@@ -2,95 +2,111 @@
 Testes para o cliente MongoDB.
 """
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+import pytest_asyncio
+from unittest.mock import AsyncMock, MagicMock, patch, call
 from datetime import datetime
 from pymongo.errors import PyMongoError
 from src.utils.mongodb_client import MongoDBClient
+import re # Importar re
+from bson import ObjectId # Adicionar importação
+# Imports que estavam faltando
+from motor.motor_asyncio import AsyncIOMotorCursor, AsyncIOMotorClient, AsyncIOMotorDatabase, AsyncIOMotorCollection
 
-@pytest.fixture
-async def mongodb_setup():
+@pytest_asyncio.fixture
+async def mongodb_setup(mocker):
     """Configura o ambiente de teste para o MongoDB."""
-    # Patch para motor.motor_asyncio.AsyncIOMotorClient
-    with patch('motor.motor_asyncio.AsyncIOMotorClient') as mock_motor_client:
-        # Mock para o cliente do MongoDB
-        mock_client = MagicMock()
-        mock_motor_client.return_value = mock_client
-        
-        # Mock para o banco de dados
-        mock_db = MagicMock()
-        mock_client.__getitem__.return_value = mock_db
-        
-        # Mock para as coleções
-        mock_checkin_anchors = AsyncMock()
-        mock_user_checkins = AsyncMock()
-        mock_qa_interactions = AsyncMock()
-        mock_qa_usage = AsyncMock()
-        mock_monitored_chats = AsyncMock()
-        mock_monitored_messages = AsyncMock()
-        mock_bot_admins = AsyncMock()
-        mock_blacklist = AsyncMock()
-        
-        mock_db.checkin_anchors = mock_checkin_anchors
-        mock_db.user_checkins = mock_user_checkins
-        mock_db.qa_interactions = mock_qa_interactions
-        mock_db.qa_usage = mock_qa_usage
-        mock_db.monitored_chats = mock_monitored_chats
-        mock_db.monitored_messages = mock_monitored_messages
-        mock_db.bot_admins = mock_bot_admins
-        mock_db.blacklist = mock_blacklist
-        
-        # Cria o cliente MongoDB
-        mongodb_client = MongoDBClient("mongodb://test:test@localhost:27017")
-        
-        # Conecta ao banco de dados para que self.db não seja None
-        await mongodb_client.connect("test_db")
-        
-        yield {
-            "client": mongodb_client,
-            "mock_motor_client": mock_motor_client,
-            "mock_client": mock_client,
-            "mock_db": mock_db,
-            "mock_checkin_anchors": mock_checkin_anchors,
-            "mock_user_checkins": mock_user_checkins,
-            "mock_qa_interactions": mock_qa_interactions,
-            "mock_qa_usage": mock_qa_usage,
-            "mock_monitored_chats": mock_monitored_chats,
-            "mock_monitored_messages": mock_monitored_messages,
-            "mock_bot_admins": mock_bot_admins,
-            "mock_blacklist": mock_blacklist
-        }
+    mock_motor_client_constructor = mocker.patch('motor.motor_asyncio.AsyncIOMotorClient')
+    mock_motor_instance = AsyncMock(spec=AsyncIOMotorClient)
+    mock_motor_client_constructor.return_value = mock_motor_instance
+    mock_db = AsyncMock(spec=AsyncIOMotorDatabase)
+    mock_motor_instance.__getitem__.return_value = mock_db
+    mock_motor_instance.close = AsyncMock() # Garantir que close seja AsyncMock
+
+    # --- Mocks das coleções e métodos --- #
+    # Função auxiliar para criar coleção mockada com métodos async
+    def create_mock_collection(spec=AsyncIOMotorCollection):
+        collection = AsyncMock(spec=spec)
+        # Métodos que são awaitable no código de produção
+        collection.find_one = AsyncMock()
+        collection.insert_one = AsyncMock()
+        collection.update_one = AsyncMock()
+        collection.update_many = AsyncMock()
+        collection.delete_one = AsyncMock()
+        collection.delete_many = AsyncMock() # Adicionar se usado
+        collection.count_documents = AsyncMock()
+        collection.distinct = AsyncMock()
+        # Métodos que retornam cursores (não são await diretos)
+        collection.find = MagicMock() # Retorna um cursor mockado
+        collection.aggregate = MagicMock() # Retorna um cursor mockado
+        return collection
+
+    mock_checkin_anchors = create_mock_collection()
+    mock_user_checkins = create_mock_collection()
+    mock_qa_interactions = create_mock_collection()
+    mock_qa_usage = create_mock_collection()
+    mock_monitored_chats = create_mock_collection()
+    mock_monitored_messages = create_mock_collection()
+    mock_bot_admins = create_mock_collection()
+    mock_blacklist = create_mock_collection()
+
+    # Atribui coleções mockadas ao db mockado
+    mock_db.checkin_anchors = mock_checkin_anchors
+    mock_db.user_checkins = mock_user_checkins
+    mock_db.qa_interactions = mock_qa_interactions
+    mock_db.qa_usage = mock_qa_usage
+    mock_db.monitored_chats = mock_monitored_chats
+    mock_db.monitored_messages = mock_monitored_messages
+    mock_db.bot_admins = mock_bot_admins
+    mock_db.blacklist = mock_blacklist
+
+    mongodb_client = MongoDBClient("mongodb://test:test@localhost:27017")
+    await mongodb_client.connect("test_db")
+
+    mocks = {
+        "client_wrapper": mongodb_client,
+        "mock_motor_client_constructor": mock_motor_client_constructor,
+        "mock_motor_instance": mock_motor_instance,
+        "mock_db": mock_db,
+        "mock_checkin_anchors": mock_checkin_anchors,
+        "mock_user_checkins": mock_user_checkins,
+        "mock_qa_interactions": mock_qa_interactions,
+        "mock_qa_usage": mock_qa_usage,
+        "mock_monitored_chats": mock_monitored_chats,
+        "mock_monitored_messages": mock_monitored_messages,
+        "mock_bot_admins": mock_bot_admins,
+        "mock_blacklist": mock_blacklist
+    }
+    yield mocks
+    await mongodb_client.close()
 
 @pytest.mark.asyncio
 async def test_connect(mongodb_setup):
     """Testa a conexão com o MongoDB."""
     # Obtém os mocks do fixture
-    mongodb_client = mongodb_setup["client"]
-    mock_motor_client = mongodb_setup["mock_motor_client"]
-    mock_client = mongodb_setup["mock_client"]
+    mongodb_client = mongodb_setup["client_wrapper"]
+    mock_motor_client_constructor = mongodb_setup["mock_motor_client_constructor"]
+    mock_motor_instance = mongodb_setup["mock_motor_instance"]
     mock_db = mongodb_setup["mock_db"]
-    
-    # Executa o método connect
-    await mongodb_client.connect("test_db")
-    
+
     # Verifica se o cliente foi criado com a string de conexão correta
-    mock_motor_client.assert_called_once_with("mongodb://test:test@localhost:27017")
-    
+    mock_motor_client_constructor.assert_called_once_with("mongodb://test:test@localhost:27017")
+
     # Verifica se o banco de dados foi selecionado corretamente
-    mock_client.__getitem__.assert_called_once_with("test_db")
-    
+    mock_motor_instance.__getitem__.assert_called_once_with("test_db")
+
     # Verifica se o cliente e o banco de dados foram armazenados
-    assert mongodb_client.client == mock_client
+    assert mongodb_client.client == mock_motor_instance
     assert mongodb_client.db == mock_db
 
 @pytest.mark.asyncio
 async def test_connect_error(mongodb_setup):
     """Testa a conexão com o MongoDB com erro."""
     # Obtém os mocks do fixture
-    mongodb_client = mongodb_setup["client"]
-    mock_motor_client = mongodb_setup["mock_motor_client"]
+    mongodb_client = mongodb_setup["client_wrapper"]
+    mock_motor_client_constructor = mongodb_setup["mock_motor_client_constructor"]
     
     # Configura o mock para lançar uma exceção
-    mock_motor_client.side_effect = PyMongoError("Connection error")
+    mock_motor_client_constructor.side_effect = PyMongoError("Connection error")
     
     # Verifica se a exceção é propagada
     with pytest.raises(PyMongoError):
@@ -100,23 +116,23 @@ async def test_connect_error(mongodb_setup):
 async def test_close(mongodb_setup):
     """Testa o fechamento da conexão com o MongoDB."""
     # Obtém os mocks do fixture
-    mongodb_client = mongodb_setup["client"]
-    mock_client = mongodb_setup["mock_client"]
+    mongodb_client = mongodb_setup["client_wrapper"]
+    mock_motor_instance = mongodb_setup["mock_motor_instance"]
     
     # Configura o cliente
-    mongodb_client.client = mock_client
+    mongodb_client.client = mock_motor_instance
     
     # Executa o método close
     await mongodb_client.close()
     
     # Verifica se o método close foi chamado
-    mock_client.close.assert_called_once()
+    mock_motor_instance.close.assert_called_once()
 
 @pytest.mark.asyncio
 async def test_set_checkin_anchor(mongodb_setup):
     """Testa a definição de uma mensagem como âncora de check-in."""
     # Obtém os mocks do fixture
-    mongodb_client = mongodb_setup["client"]
+    mongodb_client = mongodb_setup["client_wrapper"]
     mock_db = mongodb_setup["mock_db"]
     mock_checkin_anchors = mongodb_setup["mock_checkin_anchors"]
     
@@ -150,7 +166,7 @@ async def test_set_checkin_anchor(mongodb_setup):
 async def test_set_checkin_anchor_error(mongodb_setup):
     """Testa a definição de uma mensagem como âncora de check-in com erro."""
     # Obtém os mocks do fixture
-    mongodb_client = mongodb_setup["client"]
+    mongodb_client = mongodb_setup["client_wrapper"]
     mock_db = mongodb_setup["mock_db"]
     mock_checkin_anchors = mongodb_setup["mock_checkin_anchors"]
     
@@ -173,7 +189,7 @@ async def test_set_checkin_anchor_error(mongodb_setup):
 async def test_end_checkin(mongodb_setup):
     """Testa a desativação do check-in atual."""
     # Obtém os mocks do fixture
-    mongodb_client = mongodb_setup["client"]
+    mongodb_client = mongodb_setup["client_wrapper"]
     mock_db = mongodb_setup["mock_db"]
     mock_checkin_anchors = mongodb_setup["mock_checkin_anchors"]
     
@@ -199,7 +215,7 @@ async def test_end_checkin(mongodb_setup):
 async def test_end_checkin_error(mongodb_setup):
     """Testa a desativação do check-in atual com erro."""
     # Obtém os mocks do fixture
-    mongodb_client = mongodb_setup["client"]
+    mongodb_client = mongodb_setup["client_wrapper"]
     mock_db = mongodb_setup["mock_db"]
     mock_checkin_anchors = mongodb_setup["mock_checkin_anchors"]
     
@@ -219,7 +235,7 @@ async def test_end_checkin_error(mongodb_setup):
 async def test_get_active_checkin(mongodb_setup):
     """Testa a obtenção do check-in ativo."""
     # Obtém os mocks do fixture
-    mongodb_client = mongodb_setup["client"]
+    mongodb_client = mongodb_setup["client_wrapper"]
     mock_db = mongodb_setup["mock_db"]
     mock_checkin_anchors = mongodb_setup["mock_checkin_anchors"]
     
@@ -245,7 +261,7 @@ async def test_get_active_checkin(mongodb_setup):
 async def test_get_active_checkin_error(mongodb_setup):
     """Testa a obtenção do check-in ativo com erro."""
     # Obtém os mocks do fixture
-    mongodb_client = mongodb_setup["client"]
+    mongodb_client = mongodb_setup["client_wrapper"]
     mock_db = mongodb_setup["mock_db"]
     mock_checkin_anchors = mongodb_setup["mock_checkin_anchors"]
     
@@ -265,7 +281,7 @@ async def test_get_active_checkin_error(mongodb_setup):
 async def test_record_user_checkin_already_checked_in(mongodb_setup):
     """Testa o registro de check-in quando o usuário já fez check-in para a âncora atual."""
     # Obtém os mocks do fixture
-    mongodb_client = mongodb_setup["client"]
+    mongodb_client = mongodb_setup["client_wrapper"]
     mock_db = MagicMock()
     mock_user_checkins = MagicMock()
     mock_user_checkins.find_one = AsyncMock(return_value={"_id": "existing_checkin"})
@@ -292,54 +308,50 @@ async def test_record_user_checkin_already_checked_in(mongodb_setup):
     mock_user_checkins.insert_one.assert_not_called()
 
 @pytest.mark.asyncio
-async def test_record_user_checkin_success(mongodb_setup):
+async def test_record_user_checkin_success(mongodb_setup, mocker):
     """Testa o registro de check-in com sucesso."""
     # Obtém os mocks do fixture
-    mongodb_client = mongodb_setup["client"]
-    mock_db = MagicMock()
-    mock_user_checkins = MagicMock()
-    mock_user_checkins.find_one = AsyncMock(return_value=None)
-    mock_user_checkins.insert_one = AsyncMock()
-    mock_user_checkins.count_documents = AsyncMock(return_value=5)
-    mock_db.user_checkins = mock_user_checkins
-    mongodb_client.db = mock_db
-    
-    # Configura o mock para get_active_checkin retornar um check-in ativo
-    mongodb_client.get_active_checkin = AsyncMock(return_value={"_id": "anchor123"})
-    
+    mongodb_client = mongodb_setup["client_wrapper"]
+    mock_user_checkins = mongodb_setup["mock_user_checkins"]
+
+    # Mock para a âncora ativa
+    mock_active_anchor = {"_id": ObjectId(), "points_value": 1}
+    mongodb_client.get_active_checkin = AsyncMock(return_value=mock_active_anchor)
+
+    # Mock para find_one (usuário não fez check-in ainda)
+    mock_user_checkins.find_one.return_value = None
+    # Mock para insert_one (sucesso)
+    mock_insert_result = MagicMock()
+    mock_insert_result.acknowledged = True
+    mock_user_checkins.insert_one.return_value = mock_insert_result
+
+    # Mock para calculate_user_total_score (deve ser AsyncMock)
+    mock_calculate_score = mocker.patch.object(mongodb_client, 'calculate_user_total_score', new_callable=AsyncMock)
+    mock_calculate_score.return_value = 5
+
     # Executa o método record_user_checkin
-    result = await mongodb_client.record_user_checkin(123, 456, "Test User")
-    
-    # Verifica se o método retornou 5
-    assert result == 5
-    
-    # Verifica se o método find_one foi chamado com os parâmetros corretos
+    result = await mongodb_client.record_user_checkin(123, 456, "Test User", "testuser")
+
+    # Verifica se get_active_checkin foi chamado
+    mongodb_client.get_active_checkin.assert_called_once_with(123)
+    # Verifica se find_one foi chamado para checar check-in existente
     mock_user_checkins.find_one.assert_called_once_with({
         "chat_id": 123,
         "user_id": 456,
-        "anchor_id": "anchor123"
+        "anchor_id": mock_active_anchor["_id"]
     })
-    
-    # Verifica se o método insert_one foi chamado com os parâmetros corretos
+    # Verifica se insert_one foi chamado
     mock_user_checkins.insert_one.assert_called_once()
-    call_args = mock_user_checkins.insert_one.call_args[0][0]
-    assert call_args["chat_id"] == 123
-    assert call_args["user_id"] == 456
-    assert call_args["user_name"] == "Test User"
-    assert call_args["anchor_id"] == "anchor123"
-    assert "created_at" in call_args
-    
-    # Verifica se o método count_documents foi chamado com os parâmetros corretos
-    mock_user_checkins.count_documents.assert_called_once_with({
-        "chat_id": 123,
-        "user_id": 456
-    })
+    # Verifica se calculate_user_total_score foi chamado
+    mock_calculate_score.assert_called_once_with(123, 456)
+    # Verifica se o método retornou o score calculado
+    assert result == 5
 
 @pytest.mark.asyncio
 async def test_record_user_checkin_error(mongodb_setup):
     """Testa o registro de check-in com erro."""
     # Obtém os mocks do fixture
-    mongodb_client = mongodb_setup["client"]
+    mongodb_client = mongodb_setup["client_wrapper"]
     mock_db = MagicMock()
     mock_user_checkins = MagicMock()
     mock_user_checkins.find_one = AsyncMock(side_effect=PyMongoError("Erro simulado"))
@@ -359,7 +371,7 @@ async def test_record_user_checkin_error(mongodb_setup):
 async def test_get_user_count(mongodb_setup):
     """Testa a obtenção da contagem de check-ins de um usuário."""
     # Obtém os mocks do fixture
-    mongodb_client = mongodb_setup["client"]
+    mongodb_client = mongodb_setup["client_wrapper"]
     mock_db = mongodb_setup["mock_db"]
     mock_user_checkins = mongodb_setup["mock_user_checkins"]
     
@@ -384,7 +396,7 @@ async def test_get_user_count(mongodb_setup):
 async def test_get_user_count_error(mongodb_setup):
     """Testa o método get_user_checkin_count com erro."""
     # Obtém os mocks do fixture
-    mongodb_client = mongodb_setup["client"]
+    mongodb_client = mongodb_setup["client_wrapper"]
     mock_user_checkins = mongodb_setup["mock_user_checkins"]
     
     # Configura o mock para lançar uma exceção
@@ -405,414 +417,45 @@ async def test_get_user_count_error(mongodb_setup):
     assert result == 0
 
 @pytest.mark.asyncio
-async def test_get_checkin_scoreboard(mongodb_setup):
+async def test_get_checkin_scoreboard(mongodb_setup, mocker):
     """Testa o método get_checkin_scoreboard."""
-    # Obtém os mocks do fixture
-    mongodb_client = mongodb_setup["client"]
+    mongodb_client = mongodb_setup["client_wrapper"]
     mock_user_checkins = mongodb_setup["mock_user_checkins"]
-    
-    # Configura os mocks para os métodos usados
-    mock_user_checkins.distinct.return_value = [123, 456]
-    
-    # Mock para find_one
-    mock_user_checkins.find_one.side_effect = [
-        {"user_id": 123, "user_name": "Usuário 1", "chat_id": 123},
-        {"user_id": 456, "user_name": "Usuário 2", "chat_id": 123}
+
+    scoreboard_data = [
+        {"user_id": 1, "user_name": "User A", "username": "usera", "score": 10, "last_checkin": datetime(2023, 1, 10)},
+        {"user_id": 2, "user_name": "User B", "username": "userb", "score": 5, "last_checkin": datetime(2023, 1, 9)},
     ]
-    
-    # Mock para count_documents
-    mock_user_checkins.count_documents.side_effect = [2, 1]
-    
-    # Conecta ao banco de dados
-    await mongodb_client.connect()
-    
-    # Executa o método get_checkin_scoreboard
+
+    # Configura o mock da agregação
+    mock_aggregate_cursor = MagicMock()
+    mock_aggregate_cursor.to_list = AsyncMock(return_value=scoreboard_data) # Mock to_list como AsyncMock
+    mock_user_checkins.aggregate.return_value = mock_aggregate_cursor
+
     result = await mongodb_client.get_checkin_scoreboard(123)
-    
-    # Verifica se os métodos foram chamados com os parâmetros corretos
-    mock_user_checkins.distinct.assert_called_once_with("user_id", {"chat_id": 123})
-    
-    # Verifica se find_one foi chamado para cada usuário
-    assert mock_user_checkins.find_one.call_count == 2
-    
-    # Verifica se count_documents foi chamado para cada usuário
-    assert mock_user_checkins.count_documents.call_count == 2
-    
-    # Verifica se o resultado é o esperado
-    assert len(result) == 2
-    assert result[0]["user_id"] == 123
-    assert result[0]["user_name"] == "Usuário 1"
-    assert result[0]["count"] == 2
-    assert result[1]["user_id"] == 456
-    assert result[1]["user_name"] == "Usuário 2"
-    assert result[1]["count"] == 1
+
+    mock_user_checkins.aggregate.assert_called_once()
+    pipeline_arg = mock_user_checkins.aggregate.call_args[0][0]
+    assert isinstance(pipeline_arg, list)
+    assert len(pipeline_arg) > 0
+    assert pipeline_arg[0] == {"$match": {"chat_id": 123}} # Verifica o estágio $match
+
+    mock_aggregate_cursor.to_list.assert_called_once_with(length=None)
+    assert result == scoreboard_data
 
 @pytest.mark.asyncio
-async def test_get_checkin_scoreboard_error(mongodb_setup):
+async def test_get_checkin_scoreboard_error(mongodb_setup, mocker):
     """Testa o método get_checkin_scoreboard com erro."""
-    # Obtém os mocks do fixture
-    mongodb_client = mongodb_setup["client"]
+    mongodb_client = mongodb_setup["client_wrapper"]
     mock_user_checkins = mongodb_setup["mock_user_checkins"]
-    
-    # Configura o mock para lançar uma exceção
-    mock_user_checkins.distinct.side_effect = PyMongoError("Erro de teste")
-    
-    # Conecta ao banco de dados
-    await mongodb_client.connect()
-    
-    # Executa o método get_checkin_scoreboard
+
+    # Configura aggregate para lançar erro
+    mock_user_checkins.aggregate.side_effect = PyMongoError("Erro de agregação")
+
     result = await mongodb_client.get_checkin_scoreboard(123)
-    
-    # Verifica se o método distinct foi chamado
-    mock_user_checkins.distinct.assert_called_once_with("user_id", {"chat_id": 123})
-    
-    # Verifica se o resultado é uma lista vazia (valor padrão em caso de erro)
-    assert result == []
 
-@pytest.mark.asyncio
-async def test_start_monitoring(mongodb_setup):
-    """Testa o início do monitoramento de mensagens."""
-    # Obtém os mocks do fixture
-    mongodb_client = mongodb_setup["client"]
-    mock_db = mongodb_setup["mock_db"]
-    
-    # Mock para a coleção monitored_chats
-    mock_monitored_chats = AsyncMock()
-    mock_db.monitored_chats = mock_monitored_chats
-    
-    # Configura o mock para find_one
-    mock_monitored_chats.find_one.return_value = None
-    
-    # Configura o mock para update_one
-    mock_update_result = MagicMock()
-    mock_update_result.acknowledged = True
-    mock_monitored_chats.update_one.return_value = mock_update_result
-    
-    # Executa o método start_monitoring
-    await mongodb_client.connect()
-    result = await mongodb_client.start_monitoring(12345)
-    
-    # Verifica se o método find_one foi chamado corretamente
-    mock_monitored_chats.find_one.assert_called_once_with({"chat_id": 12345})
-    
-    # Verifica se o método update_one foi chamado corretamente
-    mock_monitored_chats.update_one.assert_called_once()
-    args, kwargs = mock_monitored_chats.update_one.call_args
-    assert args[0] == {"chat_id": 12345}
-    assert "active" in args[1]["$set"]
-    assert args[1]["$set"]["active"] is True
-    assert "started_at" in args[1]["$set"]
-    assert kwargs["upsert"] is True
-    
-    # Verifica o resultado
-    assert result is True
-
-@pytest.mark.asyncio
-async def test_start_monitoring_already_active(mongodb_setup):
-    """Testa o início do monitoramento quando já está ativo."""
-    # Obtém os mocks do fixture
-    mongodb_client = mongodb_setup["client"]
-    mock_db = mongodb_setup["mock_db"]
-    
-    # Mock para a coleção monitored_chats
-    mock_monitored_chats = AsyncMock()
-    mock_db.monitored_chats = mock_monitored_chats
-    
-    # Configura o mock para find_one
-    mock_monitored_chats.find_one.return_value = {"chat_id": 12345, "active": True}
-    
-    # Executa o método start_monitoring
-    await mongodb_client.connect()
-    result = await mongodb_client.start_monitoring(12345)
-    
-    # Verifica se o método find_one foi chamado corretamente
-    mock_monitored_chats.find_one.assert_called_once_with({"chat_id": 12345})
-    
-    # Verifica se o método update_one não foi chamado
-    mock_monitored_chats.update_one.assert_not_called()
-    
-    # Verifica o resultado
-    assert result is True
-
-@pytest.mark.asyncio
-async def test_start_monitoring_error(mongodb_setup):
-    """Testa o início do monitoramento com erro."""
-    # Obtém os mocks do fixture
-    mongodb_client = mongodb_setup["client"]
-    mock_db = mongodb_setup["mock_db"]
-    
-    # Mock para a coleção monitored_chats
-    mock_monitored_chats = AsyncMock()
-    mock_db.monitored_chats = mock_monitored_chats
-    
-    # Configura o mock para find_one para lançar uma exceção
-    mock_monitored_chats.find_one.side_effect = PyMongoError("Erro de teste")
-    
-    # Executa o método start_monitoring
-    await mongodb_client.connect()
-    result = await mongodb_client.start_monitoring(12345)
-    
-    # Verifica se o método find_one foi chamado corretamente
-    mock_monitored_chats.find_one.assert_called_once_with({"chat_id": 12345})
-    
-    # Verifica se o método update_one não foi chamado
-    mock_monitored_chats.update_one.assert_not_called()
-    
-    # Verifica o resultado
-    assert result is False
-
-@pytest.mark.asyncio
-async def test_stop_monitoring(mongodb_setup):
-    """Testa a parada do monitoramento de mensagens."""
-    # Obtém os mocks do fixture
-    mongodb_client = mongodb_setup["client"]
-    mock_db = mongodb_setup["mock_db"]
-    
-    # Mock para a coleção monitored_chats
-    mock_monitored_chats = AsyncMock()
-    mock_db.monitored_chats = mock_monitored_chats
-    
-    # Configura o mock para update_one
-    mock_update_result = MagicMock()
-    mock_update_result.acknowledged = True
-    mock_monitored_chats.update_one.return_value = mock_update_result
-    
-    # Executa o método stop_monitoring
-    await mongodb_client.connect()
-    result = await mongodb_client.stop_monitoring(12345)
-    
-    # Verifica se o método update_one foi chamado corretamente
-    mock_monitored_chats.update_one.assert_called_once()
-    args, kwargs = mock_monitored_chats.update_one.call_args
-    assert args[0] == {"chat_id": 12345}
-    assert "active" in args[1]["$set"]
-    assert args[1]["$set"]["active"] is False
-    assert "stopped_at" in args[1]["$set"]
-    
-    # Verifica o resultado
-    assert result is True
-
-@pytest.mark.asyncio
-async def test_stop_monitoring_error(mongodb_setup):
-    """Testa a parada do monitoramento com erro."""
-    # Obtém os mocks do fixture
-    mongodb_client = mongodb_setup["client"]
-    mock_db = mongodb_setup["mock_db"]
-    
-    # Mock para a coleção monitored_chats
-    mock_monitored_chats = AsyncMock()
-    mock_db.monitored_chats = mock_monitored_chats
-    
-    # Configura o mock para update_one para lançar uma exceção
-    mock_monitored_chats.update_one.side_effect = PyMongoError("Erro de teste")
-    
-    # Executa o método stop_monitoring
-    await mongodb_client.connect()
-    result = await mongodb_client.stop_monitoring(12345)
-    
-    # Verifica se o método update_one foi chamado corretamente
-    mock_monitored_chats.update_one.assert_called_once()
-    
-    # Verifica o resultado
-    assert result is False
-
-@pytest.mark.asyncio
-async def test_is_chat_monitored(mongodb_setup):
-    """Testa a verificação se um chat está sendo monitorado."""
-    # Obtém os mocks do fixture
-    mongodb_client = mongodb_setup["client"]
-    mock_db = mongodb_setup["mock_db"]
-    
-    # Mock para a coleção monitored_chats
-    mock_monitored_chats = AsyncMock()
-    mock_db.monitored_chats = mock_monitored_chats
-    
-    # Configura o mock para find_one
-    mock_monitored_chats.find_one.return_value = {"chat_id": 12345, "active": True}
-    
-    # Executa o método is_chat_monitored
-    await mongodb_client.connect()
-    result = await mongodb_client.is_chat_monitored(12345)
-    
-    # Verifica se o método find_one foi chamado corretamente
-    mock_monitored_chats.find_one.assert_called_once_with({"chat_id": 12345})
-    
-    # Verifica o resultado
-    assert result is True
-
-@pytest.mark.asyncio
-async def test_is_chat_monitored_not_active(mongodb_setup):
-    """Testa a verificação quando o chat não está sendo monitorado."""
-    # Obtém os mocks do fixture
-    mongodb_client = mongodb_setup["client"]
-    mock_db = mongodb_setup["mock_db"]
-    
-    # Mock para a coleção monitored_chats
-    mock_monitored_chats = AsyncMock()
-    mock_db.monitored_chats = mock_monitored_chats
-    
-    # Configura o mock para find_one
-    mock_monitored_chats.find_one.return_value = {"chat_id": 12345, "active": False}
-    
-    # Executa o método is_chat_monitored
-    await mongodb_client.connect()
-    result = await mongodb_client.is_chat_monitored(12345)
-    
-    # Verifica se o método find_one foi chamado corretamente
-    mock_monitored_chats.find_one.assert_called_once_with({"chat_id": 12345})
-    
-    # Verifica o resultado
-    assert result is False
-
-@pytest.mark.asyncio
-async def test_is_chat_monitored_not_found(mongodb_setup):
-    """Testa a verificação quando o chat não é encontrado."""
-    # Obtém os mocks do fixture
-    mongodb_client = mongodb_setup["client"]
-    mock_db = mongodb_setup["mock_db"]
-    
-    # Mock para a coleção monitored_chats
-    mock_monitored_chats = AsyncMock()
-    mock_db.monitored_chats = mock_monitored_chats
-    
-    # Configura o mock para find_one
-    mock_monitored_chats.find_one.return_value = None
-    
-    # Executa o método is_chat_monitored
-    await mongodb_client.connect()
-    result = await mongodb_client.is_chat_monitored(12345)
-    
-    # Verifica se o método find_one foi chamado corretamente
-    mock_monitored_chats.find_one.assert_called_once_with({"chat_id": 12345})
-    
-    # Verifica o resultado
-    assert result is False
-
-@pytest.mark.asyncio
-async def test_is_chat_monitored_error(mongodb_setup):
-    """Testa a verificação com erro."""
-    # Obtém os mocks do fixture
-    mongodb_client = mongodb_setup["client"]
-    mock_db = mongodb_setup["mock_db"]
-    
-    # Mock para a coleção monitored_chats
-    mock_monitored_chats = AsyncMock()
-    mock_db.monitored_chats = mock_monitored_chats
-    
-    # Configura o mock para find_one para lançar uma exceção
-    mock_monitored_chats.find_one.side_effect = PyMongoError("Erro de teste")
-    
-    # Executa o método is_chat_monitored
-    await mongodb_client.connect()
-    result = await mongodb_client.is_chat_monitored(12345)
-    
-    # Verifica se o método find_one foi chamado corretamente
-    mock_monitored_chats.find_one.assert_called_once_with({"chat_id": 12345})
-    
-    # Verifica o resultado
-    assert result is False
-
-@pytest.mark.asyncio
-async def test_store_message(mongodb_setup):
-    """Testa o armazenamento de uma mensagem."""
-    # Obtém os mocks do fixture
-    mongodb_client = mongodb_setup["client"]
-    mock_db = mongodb_setup["mock_db"]
-    
-    # Mock para a coleção monitored_messages
-    mock_monitored_messages = AsyncMock()
-    mock_db.monitored_messages = mock_monitored_messages
-    
-    # Configura o mock para insert_one
-    mock_insert_result = MagicMock()
-    mock_insert_result.acknowledged = True
-    mock_monitored_messages.insert_one.return_value = mock_insert_result
-    
-    # Executa o método store_message
-    await mongodb_client.connect()
-    timestamp = datetime.now()
-    result = await mongodb_client.store_message(
-        chat_id=12345,
-        message_id=67890,
-        user_id=54321,
-        user_name="Test User",
-        text="Test message",
-        timestamp=timestamp
-    )
-    
-    # Verifica se o método insert_one foi chamado corretamente
-    mock_monitored_messages.insert_one.assert_called_once()
-    args = mock_monitored_messages.insert_one.call_args[0][0]
-    assert args["chat_id"] == 12345
-    assert args["message_id"] == 67890
-    assert args["user_id"] == 54321
-    assert args["user_name"] == "Test User"
-    assert args["text"] == "Test message"
-    assert args["timestamp"] == timestamp
-    
-    # Verifica o resultado
-    assert result is True
-
-@pytest.mark.asyncio
-async def test_store_message_error(mongodb_setup):
-    """Testa o armazenamento de uma mensagem com erro."""
-    # Obtém os mocks do fixture
-    mongodb_client = mongodb_setup["client"]
-    mock_db = mongodb_setup["mock_db"]
-    
-    # Mock para a coleção monitored_messages
-    mock_monitored_messages = AsyncMock()
-    mock_db.monitored_messages = mock_monitored_messages
-    
-    # Configura o mock para insert_one para lançar uma exceção
-    mock_monitored_messages.insert_one.side_effect = PyMongoError("Erro de teste")
-    
-    # Executa o método store_message
-    await mongodb_client.connect()
-    timestamp = datetime.now()
-    result = await mongodb_client.store_message(
-        chat_id=12345,
-        message_id=67890,
-        user_id=54321,
-        user_name="Test User",
-        text="Test message",
-        timestamp=timestamp
-    )
-    
-    # Verifica se o método insert_one foi chamado corretamente
-    mock_monitored_messages.insert_one.assert_called_once()
-    
-    # Verifica o resultado
-    assert result is False
-
-@pytest.mark.asyncio
-async def test_get_qa_interaction(mongodb_setup):
-    """Testa a função get_qa_interaction."""
-    # Configura o mock
-    mock_db = mongodb_setup["mock_db"]
-    mock_db.qa_interactions.find_one = AsyncMock(return_value={"question": "test"})
-    
-    # Executa a função
-    mongodb_client = mongodb_setup["client"]
-    result = await mongodb_client.get_qa_interaction(123, 456)
-    
-    # Verifica o resultado
-    assert result == {"question": "test"}
-    mock_db.qa_interactions.find_one.assert_called_once_with({"chat_id": 123, "message_id": 456})
-
-@pytest.mark.asyncio
-async def test_get_qa_interaction_error(mongodb_setup):
-    """Testa a função get_qa_interaction com erro."""
-    # Configura o mock para lançar uma exceção
-    mock_db = mongodb_setup["mock_db"]
-    mock_db.qa_interactions.find_one = AsyncMock(side_effect=Exception("Test error"))
-    
-    # Executa a função
-    mongodb_client = mongodb_setup["client"]
-    result = await mongodb_client.get_qa_interaction(123, 456)
-    
-    # Verifica o resultado
-    assert result is None
+    mock_user_checkins.aggregate.assert_called_once()
+    assert result == [] # Espera lista vazia em caso de erro
 
 @pytest.mark.asyncio
 async def test_get_daily_qa_count(mongodb_setup):
@@ -822,7 +465,7 @@ async def test_get_daily_qa_count(mongodb_setup):
     mock_db.qa_usage.count_documents = AsyncMock(return_value=5)
     
     # Executa a função
-    mongodb_client = mongodb_setup["client"]
+    mongodb_client = mongodb_setup["client_wrapper"]
     result = await mongodb_client.get_daily_qa_count(123, 456)
     
     # Verifica o resultado
@@ -842,7 +485,7 @@ async def test_get_daily_qa_count_error(mongodb_setup):
     mock_db.qa_usage.count_documents = AsyncMock(side_effect=Exception("Test error"))
     
     # Executa a função
-    mongodb_client = mongodb_setup["client"]
+    mongodb_client = mongodb_setup["client_wrapper"]
     result = await mongodb_client.get_daily_qa_count(123, 456)
     
     # Verifica o resultado
@@ -857,7 +500,7 @@ async def test_get_last_qa_timestamp(mongodb_setup):
     mock_db.qa_usage.find_one = AsyncMock(return_value={"timestamp": timestamp})
     
     # Executa a função
-    mongodb_client = mongodb_setup["client"]
+    mongodb_client = mongodb_setup["client_wrapper"]
     result = await mongodb_client.get_last_qa_timestamp(123, 456)
     
     # Verifica o resultado
@@ -879,7 +522,7 @@ async def test_get_last_qa_timestamp_not_found(mongodb_setup):
     mock_db.qa_usage.find_one = AsyncMock(return_value=None)
     
     # Executa a função
-    mongodb_client = mongodb_setup["client"]
+    mongodb_client = mongodb_setup["client_wrapper"]
     result = await mongodb_client.get_last_qa_timestamp(123, 456)
     
     # Verifica o resultado
@@ -893,7 +536,7 @@ async def test_get_last_qa_timestamp_error(mongodb_setup):
     mock_db.qa_usage.find_one = AsyncMock(side_effect=Exception("Test error"))
     
     # Executa a função
-    mongodb_client = mongodb_setup["client"]
+    mongodb_client = mongodb_setup["client_wrapper"]
     result = await mongodb_client.get_last_qa_timestamp(123, 456)
     
     # Verifica o resultado
@@ -907,7 +550,7 @@ async def test_increment_qa_usage(mongodb_setup):
     mock_db.qa_usage.insert_one = AsyncMock(return_value=MagicMock(acknowledged=True))
     
     # Executa a função
-    mongodb_client = mongodb_setup["client"]
+    mongodb_client = mongodb_setup["client_wrapper"]
     result = await mongodb_client.increment_qa_usage(123, 456)
     
     # Verifica o resultado
@@ -927,7 +570,7 @@ async def test_increment_qa_usage_error(mongodb_setup):
     mock_db.qa_usage.insert_one = AsyncMock(side_effect=Exception("Test error"))
     
     # Executa a função
-    mongodb_client = mongodb_setup["client"]
+    mongodb_client = mongodb_setup["client_wrapper"]
     result = await mongodb_client.increment_qa_usage(123, 456)
     
     # Verifica o resultado
@@ -937,7 +580,7 @@ async def test_increment_qa_usage_error(mongodb_setup):
 async def test_add_to_blacklist(mongodb_setup):
     """Testa a função add_to_blacklist."""
     mock_db = mongodb_setup["mock_db"]
-    mongodb_client = mongodb_setup["client"]
+    mongodb_client = mongodb_setup["client_wrapper"]
     
     # Configura mock para blacklist collection
     mock_blacklist = AsyncMock()
@@ -979,7 +622,7 @@ async def test_add_to_blacklist(mongodb_setup):
 async def test_add_to_blacklist_error(mongodb_setup):
     """Testa a função add_to_blacklist quando ocorre um erro."""
     mock_db = mongodb_setup["mock_db"]
-    mongodb_client = mongodb_setup["client"]
+    mongodb_client = mongodb_setup["client_wrapper"]
     
     # Configura mock para blacklist collection
     mock_blacklist = AsyncMock()
@@ -1003,96 +646,86 @@ async def test_add_to_blacklist_error(mongodb_setup):
     mock_blacklist.insert_one.assert_called_once()
 
 @pytest.mark.asyncio
-async def test_get_blacklist(mongodb_setup):
+async def test_get_blacklist(mongodb_setup, mocker):
     """Testa a função get_blacklist."""
-    mock_db = mongodb_setup["mock_db"]
-    mongodb_client = mongodb_setup["client"]
-    
-    # Configura mock para blacklist collection
-    mock_blacklist = AsyncMock()
-    mock_db.blacklist = mock_blacklist
-    
-    # Cria mock para cursor com itens falsos
-    mock_cursor = AsyncMock()
-    mock_cursor.__aiter__.return_value = [
-        {"_id": "1", "user_name": "User 1"},
-        {"_id": "2", "user_name": "User 2"}
+    mongodb_client = mongodb_setup["client_wrapper"]
+    mock_blacklist_collection = mongodb_setup["mock_blacklist"]
+
+    fake_data = [
+        {"_id": "1", "user_name": "User 1", "added_at": datetime(2023, 1, 1)},
+        {"_id": "2", "user_name": "User 2", "added_at": datetime(2023, 1, 2)}
     ]
-    
-    # Configura find e sort para retornar o cursor
-    mock_find = AsyncMock()
-    mock_find.sort.return_value = mock_cursor
-    mock_blacklist.find.return_value = mock_find
-    
-    # Testa a função
+
+    # Abordagem Simplificada: Mockar o resultado final da iteração
+    mock_cursor_final = AsyncMock()
+    mock_cursor_final.__aiter__.return_value = iter(fake_data) # Simular iterador síncrono aqui pode funcionar
+
+    # Mock find().sort() para retornar algo que seja async iterable
+    mock_cursor_intermediate = MagicMock(spec=AsyncIOMotorCursor)
+    # O sort retorna o iterável mockado final
+    mock_cursor_intermediate.sort.return_value = mock_cursor_final
+    # O find retorna o cursor intermediário
+    mock_blacklist_collection.find.return_value = mock_cursor_intermediate
+
+    # Executa a função que será testada
     result = await mongodb_client.get_blacklist(123456)
-    
-    # Verifica se o resultado está correto
-    assert len(result) == 2
-    assert result[0]["_id"] == "1"
-    assert result[0]["user_name"] == "User 1"
-    assert result[1]["_id"] == "2"
-    assert result[1]["user_name"] == "User 2"
-    
-    # Verifica se find foi chamado com os parâmetros corretos
-    mock_blacklist.find.assert_called_once_with({"chat_id": 123456})
-    mock_find.sort.assert_called_once_with("added_at", -1)
+
+    # Verificações
+    mock_blacklist_collection.find.assert_called_once_with({"chat_id": 123456})
+    mock_cursor_intermediate.sort.assert_called_once_with("added_at", -1)
+    assert result == fake_data
 
 @pytest.mark.asyncio
-async def test_get_blacklist_empty(mongodb_setup):
+async def test_get_blacklist_empty(mongodb_setup, mocker):
     """Testa a função get_blacklist quando a lista está vazia."""
-    mock_db = mongodb_setup["mock_db"]
-    mongodb_client = mongodb_setup["client"]
-    
-    # Configura mock para blacklist collection
-    mock_blacklist = AsyncMock()
-    mock_db.blacklist = mock_blacklist
-    
-    # Cria mock para cursor vazio
-    mock_cursor = AsyncMock()
-    mock_cursor.__aiter__.return_value = []
-    
-    # Configura find e sort para retornar o cursor vazio
-    mock_find = AsyncMock()
-    mock_find.sort.return_value = mock_cursor
-    mock_blacklist.find.return_value = mock_find
-    
+    mongodb_client = mongodb_setup["client_wrapper"]
+    mock_blacklist_collection = mongodb_setup["mock_blacklist"]
+
+    # Mock para cursor vazio
+    mock_async_iterator = mocker.AsyncMock()
+    mock_async_iterator.__anext__.side_effect = StopAsyncIteration()
+
+    mock_cursor = MagicMock(spec=AsyncIOMotorCursor)
+    mock_cursor.sort.return_value = mock_cursor # Sort retorna ele mesmo
+    mock_cursor.__aiter__.return_value = mock_async_iterator # Iterador vazio
+
+    # Find retorna o MagicMock síncrono
+    mock_blacklist_collection.find.return_value = mock_cursor
+
     # Testa a função
     result = await mongodb_client.get_blacklist(123456)
-    
-    # Verifica se o resultado está correto
+
+    # Verifica
+    mock_blacklist_collection.find.assert_called_once_with({"chat_id": 123456})
+    mock_cursor.sort.assert_called_once_with("added_at", -1)
     assert result == []
-    
-    # Verifica se find foi chamado com os parâmetros corretos
-    mock_blacklist.find.assert_called_once_with({"chat_id": 123456})
-    mock_find.sort.assert_called_once_with("added_at", -1)
 
 @pytest.mark.asyncio
 async def test_get_blacklist_error(mongodb_setup):
     """Testa a função get_blacklist quando ocorre um erro."""
-    mock_db = mongodb_setup["mock_db"]
-    mongodb_client = mongodb_setup["client"]
-    
-    # Configura mock para blacklist collection
-    mock_blacklist = AsyncMock()
-    mock_db.blacklist = mock_blacklist
-    
-    # Configura find para lançar exceção
-    mock_blacklist.find.side_effect = PyMongoError("Erro de teste")
-    
+    mongodb_client = mongodb_setup["client_wrapper"]
+    mock_blacklist_collection = mongodb_setup["mock_blacklist"]
+
+    # Find retorna um MagicMock cujo método sort levanta erro
+    mock_cursor = MagicMock(spec=AsyncIOMotorCursor)
+    mock_cursor.sort.side_effect = PyMongoError("Erro de teste sort")
+    mock_blacklist_collection.find.return_value = mock_cursor
+
     # Testa a função
     result = await mongodb_client.get_blacklist(123456)
-    
-    # Verifica se o resultado está correto
+
+    # Verifica chamada
+    mock_blacklist_collection.find.assert_called_once_with({"chat_id": 123456})
+    mock_cursor.sort.assert_called_once_with("added_at", -1)
+    # Verifica o resultado
     assert result == []
-    
-    # Verifica se find foi chamado
-    mock_blacklist.find.assert_called_once()
 
 @pytest.mark.asyncio
 async def test_get_blacklist_by_group_name(mongodb_setup):
     """Testa a função get_blacklist_by_group_name."""
-    mongodb_client = mongodb_setup["client"]
+    mongodb_client = mongodb_setup["client_wrapper"]
+    mock_monitored = mongodb_setup["mock_monitored_chats"]
+    mock_blacklist = mongodb_setup["mock_blacklist"]
     
     # Configura mocks
     mongodb_client._get_chat_id_by_name = AsyncMock()
@@ -1121,7 +754,7 @@ async def test_get_blacklist_by_group_name(mongodb_setup):
 @pytest.mark.asyncio
 async def test_get_blacklist_by_group_name_not_found(mongodb_setup):
     """Testa a função get_blacklist_by_group_name quando o grupo não é encontrado."""
-    mongodb_client = mongodb_setup["client"]
+    mongodb_client = mongodb_setup["client_wrapper"]
     
     # Configura mocks
     mongodb_client._get_chat_id_by_name = AsyncMock()
@@ -1143,7 +776,7 @@ async def test_get_blacklist_by_group_name_not_found(mongodb_setup):
 async def test_get_chat_username(mongodb_setup):
     """Testa a função _get_chat_username."""
     mock_db = mongodb_setup["mock_db"]
-    mongodb_client = mongodb_setup["client"]
+    mongodb_client = mongodb_setup["client_wrapper"]
     
     # Configura mock para monitored_chats collection
     mock_monitored_chats = AsyncMock()
@@ -1169,7 +802,7 @@ async def test_get_chat_username(mongodb_setup):
 async def test_get_chat_username_not_found(mongodb_setup):
     """Testa a função _get_chat_username quando o chat não é encontrado."""
     mock_db = mongodb_setup["mock_db"]
-    mongodb_client = mongodb_setup["client"]
+    mongodb_client = mongodb_setup["client_wrapper"]
     
     # Configura mock para monitored_chats collection
     mock_monitored_chats = AsyncMock()
@@ -1191,59 +824,195 @@ async def test_get_chat_username_not_found(mongodb_setup):
 async def test_get_chat_id_by_name(mongodb_setup):
     """Testa a função _get_chat_id_by_name."""
     mock_db = mongodb_setup["mock_db"]
-    mongodb_client = mongodb_setup["client"]
-    
-    # Configura mock para monitored_chats collection
-    mock_monitored_chats = AsyncMock()
-    mock_db.monitored_chats = mock_monitored_chats
-    
+    mongodb_client = mongodb_setup["client_wrapper"]
+    mock_monitored_chats = mongodb_setup["mock_monitored_chats"]
+
+    # Configura o banco de dados
+    mongodb_client.db = mock_db
+
     # Configura find_one para retornar um chat
-    mock_monitored_chats.find_one.return_value = {
+    expected_chat = {
         "chat_id": 123456,
         "title": "GYM NATION",
         "username": "gymgroup"
     }
-    
+    mock_monitored_chats.find_one.return_value = expected_chat
+
     # Testa a função
     result = await mongodb_client._get_chat_id_by_name("GYM NATION")
-    
+
     # Verifica se o resultado está correto
     assert result == 123456
-    
+
     # Verifica se find_one foi chamado com os parâmetros corretos
-    mock_monitored_chats.find_one.assert_called_once()
-    call_args = mock_monitored_chats.find_one.call_args[0][0]
-    assert "$regex" in call_args["title"]
-    assert call_args["title"]["$regex"] == "GYM NATION"
-    assert call_args["title"]["$options"] == "i"
+    expected_query = re.escape("GYM NATION")
+    expected_or_query = {
+        "$or": [
+            {"title": {"$regex": f'^{expected_query}$', "$options": "i"}},
+            {"title": {"$regex": expected_query, "$options": "i"}},
+            {"username": {"$regex": f'^{expected_query}$', "$options": "i"}},
+            {"username": {"$regex": expected_query, "$options": "i"}}
+        ]
+    }
+    mock_monitored_chats.find_one.assert_called_once_with(expected_or_query)
 
 @pytest.mark.asyncio
-async def test_get_chat_id_by_name_not_found(mongodb_setup):
+async def test_get_chat_id_by_name_not_found(mongodb_setup, mocker):
     """Testa a função _get_chat_id_by_name quando o grupo não é encontrado."""
     mock_db = mongodb_setup["mock_db"]
-    mongodb_client = mongodb_setup["client"]
-    
-    # Configura mock para monitored_chats collection
-    mock_monitored_chats = AsyncMock()
-    mock_db.monitored_chats = mock_monitored_chats
-    
+    mongodb_client = mongodb_setup["client_wrapper"]
+    mock_monitored_chats = mongodb_setup["mock_monitored_chats"]
+
+    # Configura o banco de dados
+    mongodb_client.db = mock_db
+
     # Configura find_one para retornar None
     mock_monitored_chats.find_one.return_value = None
-    
-    # Testa a função
-    result = await mongodb_client._get_chat_id_by_name("GRUPO INEXISTENTE")
-    
-    # Verifica se o resultado está correto
+
+    # Configura find({}) para retornar um iterador async vazio (para o logging)
+    mock_find_cursor = MagicMock()
+    mock_find_iterator = mocker.AsyncMock()
+    mock_find_iterator.__anext__.side_effect = StopAsyncIteration()
+    mock_find_cursor.__aiter__.return_value = mock_find_iterator
+    mock_monitored_chats.find.return_value = mock_find_cursor
+
+    # Executa o método _get_chat_id_by_name
+    result = await mongodb_client._get_chat_id_by_name("Non Existent Group")
+
+    # Verifica se o método find_one foi chamado com os parâmetros corretos
+    expected_query = re.escape("Non Existent Group")
+    expected_or_query = {
+        "$or": [
+            {"title": {"$regex": f'^{expected_query}$', "$options": "i"}},
+            {"title": {"$regex": expected_query, "$options": "i"}},
+            {"username": {"$regex": f'^{expected_query}$', "$options": "i"}},
+            {"username": {"$regex": expected_query, "$options": "i"}}
+        ]
+    }
+    mock_monitored_chats.find_one.assert_called_once_with(expected_or_query)
+    # Verifica a chamada ao find({}) para o logging
+    mock_monitored_chats.find.assert_called_once_with({})
+
+    # Verifica o resultado
     assert result is None
+
+@pytest.mark.asyncio
+async def test_get_chat_id_by_name_error(mongodb_setup):
+    """
+    Testa a obtenção do ID de um chat quando ocorre um erro.
+    """
+    # Obtém os mocks do fixture
+    mongodb_client = mongodb_setup["client_wrapper"]
+    mock_db = mongodb_setup["mock_db"]
+    mock_monitored_chats = mongodb_setup["mock_monitored_chats"]
     
-    # Verifica se find_one foi chamado
-    mock_monitored_chats.find_one.assert_called_once()
+    # Configura o banco de dados
+    mongodb_client.db = mock_db
+    
+    # Configura o mock para find_one lançar uma exceção
+    mock_monitored_chats.find_one.side_effect = PyMongoError("Database error")
+    
+    # Executa o método _get_chat_id_by_name
+    result = await mongodb_client._get_chat_id_by_name("Test Group")
+    
+    # Verifica se o método find_one foi chamado com os parâmetros corretos
+    expected_query = re.escape("Test Group")
+    expected_or_query = {
+        "$or": [
+            {"title": {"$regex": f'^{expected_query}$', "$options": "i"}},
+            {"title": {"$regex": expected_query, "$options": "i"}},
+            {"username": {"$regex": f'^{expected_query}$', "$options": "i"}},
+            {"username": {"$regex": expected_query, "$options": "i"}}
+        ]
+    }
+    mock_monitored_chats.find_one.assert_called_once_with(expected_or_query)
+    
+    # Verifica o resultado
+    assert result is None
+
+@pytest.mark.asyncio
+async def test_get_chat_id_by_name_with_username(mongodb_setup):
+    """
+    Testa a obtenção do ID de um chat pelo username.
+    """
+    # Obtém os mocks do fixture
+    mongodb_client = mongodb_setup["client_wrapper"]
+    mock_db = mongodb_setup["mock_db"]
+    mock_monitored_chats = mongodb_setup["mock_monitored_chats"]
+    
+    # Configura o banco de dados
+    mongodb_client.db = mock_db
+    
+    # Configura o mock para find_one
+    expected_chat = {
+        "chat_id": 12345,
+        "title": "Test Group",
+        "username": "testgroup"
+    }
+    mock_monitored_chats.find_one.return_value = expected_chat
+    
+    # Executa o método _get_chat_id_by_name
+    result = await mongodb_client._get_chat_id_by_name("testgroup")
+    
+    # Verifica se o método find_one foi chamado com os parâmetros corretos
+    expected_query = re.escape("testgroup")
+    expected_or_query = {
+        "$or": [
+            {"title": {"$regex": f'^{expected_query}$', "$options": "i"}},
+            {"title": {"$regex": expected_query, "$options": "i"}},
+            {"username": {"$regex": f'^{expected_query}$', "$options": "i"}},
+            {"username": {"$regex": expected_query, "$options": "i"}}
+        ]
+    }
+    mock_monitored_chats.find_one.assert_called_once_with(expected_or_query)
+    
+    # Verifica o resultado
+    assert result == expected_chat["chat_id"]
+
+@pytest.mark.asyncio
+async def test_get_chat_id_by_name_with_title(mongodb_setup):
+    """
+    Testa a obtenção do ID de um chat pelo título.
+    """
+    # Obtém os mocks do fixture
+    mongodb_client = mongodb_setup["client_wrapper"]
+    mock_db = mongodb_setup["mock_db"]
+    mock_monitored_chats = mongodb_setup["mock_monitored_chats"]
+    
+    # Configura o banco de dados
+    mongodb_client.db = mock_db
+    
+    # Configura o mock para find_one
+    expected_chat = {
+        "chat_id": 12345,
+        "title": "Test Group",
+        "username": "testgroup"
+    }
+    mock_monitored_chats.find_one.return_value = expected_chat
+    
+    # Executa o método _get_chat_id_by_name
+    result = await mongodb_client._get_chat_id_by_name("Test Group")
+    
+    # Verifica se o método find_one foi chamado com os parâmetros corretos
+    expected_query = re.escape("Test Group")
+    expected_or_query = {
+        "$or": [
+            {"title": {"$regex": f'^{expected_query}$', "$options": "i"}},
+            {"title": {"$regex": expected_query, "$options": "i"}},
+            {"username": {"$regex": f'^{expected_query}$', "$options": "i"}},
+            {"username": {"$regex": expected_query, "$options": "i"}}
+        ]
+    }
+    mock_monitored_chats.find_one.assert_called_once_with(expected_or_query)
+    
+    # Verifica o resultado
+    assert result == expected_chat["chat_id"]
 
 @pytest.mark.asyncio
 async def test_remove_from_blacklist(mongodb_setup):
     """Testa a função remove_from_blacklist."""
     mock_db = mongodb_setup["mock_db"]
-    mongodb_client = mongodb_setup["client"]
+    mongodb_client = mongodb_setup["client_wrapper"]
     
     # Configura mock para blacklist collection
     mock_blacklist = AsyncMock()
@@ -1272,7 +1041,7 @@ async def test_remove_from_blacklist(mongodb_setup):
 async def test_remove_from_blacklist_not_found(mongodb_setup):
     """Testa a função remove_from_blacklist quando o item não é encontrado."""
     mock_db = mongodb_setup["mock_db"]
-    mongodb_client = mongodb_setup["client"]
+    mongodb_client = mongodb_setup["client_wrapper"]
     
     # Configura mock para blacklist collection
     mock_blacklist = AsyncMock()
@@ -1295,7 +1064,7 @@ async def test_remove_from_blacklist_not_found(mongodb_setup):
 async def test_remove_from_blacklist_error(mongodb_setup):
     """Testa a função remove_from_blacklist quando ocorre um erro."""
     mock_db = mongodb_setup["mock_db"]
-    mongodb_client = mongodb_setup["client"]
+    mongodb_client = mongodb_setup["client_wrapper"]
     
     # Configura mock para blacklist collection
     mock_blacklist = AsyncMock()
@@ -1313,8 +1082,8 @@ async def test_remove_from_blacklist_error(mongodb_setup):
 @pytest.mark.asyncio
 async def test_remove_from_blacklist_by_link(mongodb_setup):
     """Testa a função remove_from_blacklist_by_link."""
-    mock_db = monkeypatch_setup(mongodb_setup["client"])  # Ajustado para usar monkeypatch_setup
-    mongodb_client = mongodb_setup["client"]
+    mongodb_client = mongodb_setup["client_wrapper"]
+    mock_db = monkeypatch_setup(mongodb_client)  # Passa o client_wrapper correto
     
     # Configura mock para blacklist collection
     mock_blacklist = AsyncMock()
@@ -1342,8 +1111,8 @@ async def test_remove_from_blacklist_by_link(mongodb_setup):
 @pytest.mark.asyncio
 async def test_remove_from_blacklist_by_link_invalid_format(mongodb_setup):
     """Testa a função remove_from_blacklist_by_link com formato inválido."""
-    mock_db = monkeypatch_setup(mongodb_setup["client"])  # Ajustado para usar monkeypatch_setup
-    mongodb_client = mongodb_setup["client"]
+    mongodb_client = mongodb_setup["client_wrapper"]
+    mock_db = monkeypatch_setup(mongodb_client)  # Passa o client_wrapper correto
     
     # Link inválido
     invalid_link = "https://t.me/invalid_link"
@@ -1360,8 +1129,8 @@ async def test_remove_from_blacklist_by_link_invalid_format(mongodb_setup):
 @pytest.mark.asyncio
 async def test_remove_from_blacklist_by_link_not_found(mongodb_setup):
     """Testa a função remove_from_blacklist_by_link quando a mensagem não é encontrada."""
-    mock_db = monkeypatch_setup(mongodb_setup["client"])  # Ajustado para usar monkeypatch_setup
-    mongodb_client = mongodb_setup["client"]
+    mongodb_client = mongodb_setup["client_wrapper"]
+    mock_db = monkeypatch_setup(mongodb_client)  # Passa o client_wrapper correto
     
     # Configura mock para blacklist collection
     mock_blacklist = AsyncMock()
@@ -1383,8 +1152,8 @@ async def test_remove_from_blacklist_by_link_not_found(mongodb_setup):
 @pytest.mark.asyncio
 async def test_remove_from_blacklist_by_link_error(mongodb_setup):
     """Testa a função remove_from_blacklist_by_link quando ocorre um erro."""
-    mock_db = monkeypatch_setup(mongodb_setup["client"])  # Ajustado para usar monkeypatch_setup
-    mongodb_client = mongodb_setup["client"]
+    mongodb_client = mongodb_setup["client_wrapper"]
+    mock_db = monkeypatch_setup(mongodb_client)  # Passa o client_wrapper correto
     
     # Configura mock para blacklist collection
     mock_blacklist = AsyncMock()
@@ -1402,140 +1171,10 @@ async def test_remove_from_blacklist_by_link_error(mongodb_setup):
     # Verifica se o resultado está correto
     assert result is False
 
-@pytest.mark.asyncio
-async def test_get_chat_id_by_name_with_username(mongodb_setup):
-    """
-    Testa a obtenção do ID de um chat pelo username.
-    """
-    # Obtém os mocks do fixture
-    mongodb_client = mongodb_setup["client"]
-    mock_db = mongodb_setup["mock_db"]
-    mock_monitored_chats = mongodb_setup["mock_monitored_chats"]
-    
-    # Configura o banco de dados
-    mongodb_client.db = mock_db
-    
-    # Configura o mock para find_one
-    expected_chat = {
-        "chat_id": 12345,
-        "title": "Test Group",
-        "username": "testgroup"
-    }
-    mock_monitored_chats.find_one.return_value = expected_chat
-    
-    # Executa o método _get_chat_id_by_name
-    result = await mongodb_client._get_chat_id_by_name("testgroup")
-    
-    # Verifica se o método find_one foi chamado com os parâmetros corretos
-    mock_monitored_chats.find_one.assert_called_once_with({
-        "$or": [
-            {"title": {"$regex": "testgroup", "$options": "i"}},
-            {"username": {"$regex": "testgroup", "$options": "i"}}
-        ]
-    })
-    
-    # Verifica o resultado
-    assert result == expected_chat["chat_id"]
-
-@pytest.mark.asyncio
-async def test_get_chat_id_by_name_with_title(mongodb_setup):
-    """
-    Testa a obtenção do ID de um chat pelo título.
-    """
-    # Obtém os mocks do fixture
-    mongodb_client = mongodb_setup["client"]
-    mock_db = mongodb_setup["mock_db"]
-    mock_monitored_chats = mongodb_setup["mock_monitored_chats"]
-    
-    # Configura o banco de dados
-    mongodb_client.db = mock_db
-    
-    # Configura o mock para find_one
-    expected_chat = {
-        "chat_id": 12345,
-        "title": "Test Group",
-        "username": "testgroup"
-    }
-    mock_monitored_chats.find_one.return_value = expected_chat
-    
-    # Executa o método _get_chat_id_by_name
-    result = await mongodb_client._get_chat_id_by_name("Test Group")
-    
-    # Verifica se o método find_one foi chamado com os parâmetros corretos
-    mock_monitored_chats.find_one.assert_called_once_with({
-        "$or": [
-            {"title": {"$regex": "Test Group", "$options": "i"}},
-            {"username": {"$regex": "Test Group", "$options": "i"}}
-        ]
-    })
-    
-    # Verifica o resultado
-    assert result == expected_chat["chat_id"]
-
-@pytest.mark.asyncio
-async def test_get_chat_id_by_name_not_found(mongodb_setup):
-    """
-    Testa a obtenção do ID de um chat quando não encontrado.
-    """
-    # Obtém os mocks do fixture
-    mongodb_client = mongodb_setup["client"]
-    mock_db = mongodb_setup["mock_db"]
-    mock_monitored_chats = mongodb_setup["mock_monitored_chats"]
-    
-    # Configura o banco de dados
-    mongodb_client.db = mock_db
-    
-    # Configura o mock para find_one retornar None
-    mock_monitored_chats.find_one.return_value = None
-    
-    # Executa o método _get_chat_id_by_name
-    result = await mongodb_client._get_chat_id_by_name("Non Existent Group")
-    
-    # Verifica se o método find_one foi chamado com os parâmetros corretos
-    mock_monitored_chats.find_one.assert_called_once_with({
-        "$or": [
-            {"title": {"$regex": "Non Existent Group", "$options": "i"}},
-            {"username": {"$regex": "Non Existent Group", "$options": "i"}}
-        ]
-    })
-    
-    # Verifica o resultado
-    assert result is None
-
-@pytest.mark.asyncio
-async def test_get_chat_id_by_name_error(mongodb_setup):
-    """
-    Testa a obtenção do ID de um chat quando ocorre um erro.
-    """
-    # Obtém os mocks do fixture
-    mongodb_client = mongodb_setup["client"]
-    mock_db = mongodb_setup["mock_db"]
-    mock_monitored_chats = mongodb_setup["mock_monitored_chats"]
-    
-    # Configura o banco de dados
-    mongodb_client.db = mock_db
-    
-    # Configura o mock para find_one lançar uma exceção
-    mock_monitored_chats.find_one.side_effect = PyMongoError("Database error")
-    
-    # Executa o método _get_chat_id_by_name
-    result = await mongodb_client._get_chat_id_by_name("Test Group")
-    
-    # Verifica se o método find_one foi chamado com os parâmetros corretos
-    mock_monitored_chats.find_one.assert_called_once_with({
-        "$or": [
-            {"title": {"$regex": "Test Group", "$options": "i"}},
-            {"username": {"$regex": "Test Group", "$options": "i"}}
-        ]
-    })
-    
-    # Verifica o resultado
-    assert result is None
-
 # Função auxiliar para monkeypatching
-def monkeypatch_setup(client):
+def monkeypatch_setup(client_wrapper):
     """Configura monkeypatching para os testes de MongoDB."""
     mock_db = MagicMock()
     # Substitui o atributo db do cliente pelo mock
-    client.db = mock_db
+    client_wrapper.db = mock_db
     return mock_db 

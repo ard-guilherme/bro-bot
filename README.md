@@ -14,6 +14,45 @@ Um bot para Telegram desenvolvido para a comunidade GYM NATION de academia e fit
 -   **Implantação:** Suporte a Docker para fácil configuração.
 -   **Controle de Acesso:** Restringe o uso da maioria dos comandos ao proprietário e administradores designados.
 
+## Tecnologias Utilizadas
+
+- **Python 3.8+**: Linguagem principal de desenvolvimento
+- **python-telegram-bot 20.7+**: Framework para integração com a API do Telegram
+- **MongoDB**: Banco de dados NoSQL para armazenamento de dados
+  - **motor 3.7.0+**: Cliente MongoDB assíncrono para Python
+  - **pymongo 4.11.1+**: Utilizado para tipos de exceção e operações específicas
+- **Anthropic API**: Serviço de IA para geração de respostas para dúvidas fitness e mensagens motivacionais
+- **Docker**: Containerização para facilitar a implantação
+- **Testes**: Utiliza pytest, pytest-mock e pytest-asyncio para testes automatizados
+
+## Arquitetura do Projeto
+
+O projeto segue uma arquitetura modular organizada da seguinte forma:
+
+```
+bro-bot/
+├── src/                      # Código fonte do bot
+│   ├── main.py               # Ponto de entrada da aplicação
+│   ├── bot/                  # Lógica específica do bot
+│   │   ├── handlers.py       # Handlers gerais de comandos
+│   │   ├── checkin_handlers.py # Sistema de check-in
+│   │   ├── mention_handlers.py # Respostas a menções (QA Fitness)
+│   │   ├── blacklist_handlers.py # Sistema de blacklist
+│   │   ├── messages.py       # Mensagens de texto usadas pelo bot
+│   │   ├── motivation.py     # Geração de mensagens motivacionais
+│   │   └── fitness_qa.py     # Interação com API Anthropic para QA
+│   └── utils/                # Utilitários e módulos de suporte
+│       ├── config.py         # Carregamento de configurações (.env)
+│       ├── filters.py        # Filtros de mensagem personalizados
+│       ├── mongodb_client.py # Funções de interação com MongoDB
+│       ├── mongodb_instance.py # Inicialização do cliente MongoDB
+│       ├── anthropic_client.py # Cliente para a API da Anthropic
+│       └── recurring_messages_manager.py # Gerenciador de mensagens recorrentes
+├── tests/                    # Testes automatizados
+├── scripts/                  # Scripts auxiliares
+└── docs/                     # Documentação adicional
+```
+
 ## Requisitos
 
 -   Python 3.8+
@@ -36,8 +75,8 @@ Um bot para Telegram desenvolvido para a comunidade GYM NATION de academia e fit
 
 1.  Clone o repositório:
     ```bash
-    git clone https://github.com/seu-usuario/gym-nation-bot.git
-    cd gym-nation-bot
+    git clone https://github.com/seu-usuario/bro-bot.git
+    cd bro-bot
     ```
 
 2.  Instale as dependências:
@@ -47,17 +86,9 @@ Um bot para Telegram desenvolvido para a comunidade GYM NATION de academia e fit
 
 3.  Configure as variáveis de ambiente:
     -   Crie um arquivo `.env` na raiz do projeto baseado no `.env.example`.
-    -   Preencha com suas chaves API, string de conexão do MongoDB e ID do proprietário:
-        ```
-        TELEGRAM_API_TOKEN=seu_token_aqui
-        ANTHROPIC_API_KEY=sua_chave_anthropic_aqui
-        MONGODB_CONNECTION_STRING=sua_string_de_conexao_mongodb
-        OWNER_ID=seu_id_do_telegram # Importante para permissões
-        BOT_USERNAME=Nations_bro_bot # Opcional, usado em algumas lógicas
-        ```
-    -   Para obter seu ID do Telegram, envie uma mensagem para [@userinfobot](https://t.me/userinfobot).
+    -   Preencha com suas chaves API, string de conexão do MongoDB e ID do proprietário.
 
-## Uso
+## Execução
 
 ### Método 1: Execução direta
 
@@ -68,96 +99,35 @@ python -m src.main
 
 ### Método 2: Usando Docker
 
-1.  Certifique-se de que o Docker e o Docker Compose estejam instalados.
-2.  Inicie o MongoDB e o bot com Docker Compose:
+1.  Inicie o MongoDB e o bot com Docker Compose:
     ```bash
     docker-compose up -d
     ```
-3.  Para parar os serviços:
+2.  Para parar os serviços:
     ```bash
     docker-compose down
     ```
-
-## Controle de Acesso e Permissões
-
-O bot opera com um sistema de permissões baseado em três níveis:
-
-1.  **Proprietário do Bot:** Definido pela variável `OWNER_ID` no `.env`. Tem acesso total a todos os comandos e funcionalidades, incluindo o gerenciamento de administradores do bot.
-2.  **Administradores do Bot:** Usuários adicionados pelo proprietário através do comando `/setadmin`. Podem usar a maioria dos comandos de interação e moderação em grupos onde o bot está presente e em chats privados com o bot.
-3.  **Membros do Grupo:** Usuários regulares nos grupos onde o bot está. Podem interagir com o bot principalmente através do sistema de check-in e do assistente de dúvidas por menção. A maioria dos comandos diretos é ignorada.
-
-**Importante:** Por padrão, o bot só responde a comandos enviados pelo Proprietário ou Administradores do Bot, tanto em chats privados quanto em grupos. Mensagens de outros usuários que tentam usar comandos são silenciosamente ignoradas. A exceção é o Assistente de Dúvidas Fitness, que pode ser ativado por qualquer membro ao mencionar o bot em resposta a uma pergunta.
-
-## Comandos do Bot
-
-### Comandos para Proprietário e Administradores do Bot
-
-Estes comandos podem ser usados pelo proprietário e pelos administradores do bot em chats privados ou em grupos onde o bot está.
-
--   `/start` - Inicia a interação com o bot (em chat privado).
--   `/help` - Mostra a mensagem de ajuda com os comandos disponíveis.
--   `/motivacao` - Envia uma mensagem de motivação fitness gerada por IA.
--   `/fecho` - Envia uma tirada sarcástica e debochada com humor.
--   `/apresentacao` - Responde com uma apresentação personalizada do bot.
--   `/macros <descrição do alimento/refeição>` - Calcula macronutrientes estimados para o item descrito.
--   `/regras` - Mostra as regras do grupo GYM NATION (se configuradas).
--   `/checkin` - (Respondendo a uma mensagem) Define a mensagem respondida como a âncora de check-in ativa para o grupo.
--   `/endcheckin` - Desativa o check-in ativo no grupo.
--   `/checkinscore` - Mostra o ranking de check-ins dos usuários no grupo.
--   `/confirmcheckin <user_id ou reply>` - Confirma manualmente o check-in para um usuário específico no check-in ativo.
--   `/addblacklist` - (Respondendo a uma mensagem) Adiciona a mensagem respondida à blacklist do chat.
--   `/blacklist` - Lista as mensagens atualmente na blacklist do chat.
--   `/rmblacklist <id_da_mensagem_na_blacklist>` - Remove uma mensagem da blacklist usando seu ID único.
--   `/say <mensagem>` - Faz o bot enviar a mensagem especificada no chat atual.
--   `/sayrecurrent <intervalo> <mensagem>` - Configura uma mensagem recorrente. Intervalo (ex: `1d`, `2h30m`).
--   `/listrecurrent` - Lista as mensagens recorrentes configuradas para o chat.
--   `/delrecurrent <id_da_mensagem>` - Deleta uma mensagem recorrente pelo seu ID.
-
-### Comandos Exclusivos do Proprietário do Bot
-
-Estes comandos só podem ser usados pelo usuário definido como `OWNER_ID`.
-
--   `/setadmin <user_id ou reply> [Nome Opcional]` - Adiciona um usuário como administrador do bot. Pode ser usado respondendo a uma mensagem do usuário ou fornecendo o ID diretamente.
--   `/deladmin <user_id ou reply>` - Remove um usuário da lista de administradores do bot.
--   `/listadmins` - Lista todos os administradores atuais do bot.
--   `/monitor` - (Em um grupo) Começa a monitorar todas as mensagens enviadas no grupo (para fins de depuração ou análise).
--   `/unmonitor` - (Em um grupo) Para de monitorar as mensagens no grupo.
-
-### Interações para Membros do Grupo
-
-Membros regulares podem interagir com o bot das seguintes formas:
-
--   **Check-in:** Responder à mensagem âncora de check-in (definida por um admin/proprietário) para registrar presença.
--   **Assistente de Dúvidas Fitness:** Mencionar o bot (`@NomeDoBot`) em resposta a uma mensagem contendo uma dúvida sobre fitness para receber uma resposta gerada por IA.
 
 ## Funcionalidades Detalhadas
 
 ### Sistema de Check-in
 
-1.  Um administrador ou proprietário usa `/checkin` respondendo a uma mensagem no grupo. Essa mensagem se torna a "âncora".
-2.  Membros podem responder a essa mensagem âncora (com qualquer texto/emoji) para fazer check-in.
-3.  O bot reage à resposta do membro para confirmar o check-in.
-4.  `/checkinscore` mostra quem fez mais check-ins.
-5.  `/endcheckin` desativa a âncora atual.
-6.  `/confirmcheckin` permite adicionar manualmente um check-in para um usuário.
+O sistema de check-in permite que administradores definam "âncoras" de check-in em mensagens específicas. Os membros podem responder a essas mensagens para registrar sua presença, acumulando pontos que são exibidos em um ranking.
 
-### Assistente de Dúvidas Fitness por Menção
+- Check-in normal: Vale 1 ponto
+- Check-in PLUS: Vale 2 pontos e pode gerar respostas personalizadas da IA
 
-1.  Um membro responde a uma mensagem com uma dúvida fitness mencionando o bot (ex: `@Nations_bro_bot`).
-2.  O bot usa a API da Anthropic para analisar a pergunta e gerar uma resposta informativa.
-3.  A resposta inclui botões de feedback (👍/👎) e um botão "Modo Especialista" para uma resposta mais detalhada via mensagem privada.
-4.  Há um limite diário de consultas por usuário.
+### Assistente de Dúvidas Fitness
+
+Quando mencionado em resposta a uma mensagem contendo uma dúvida sobre fitness, o bot utiliza a API da Anthropic para gerar uma resposta informativa. Os usuários podem fornecer feedback sobre a qualidade da resposta.
 
 ### Sistema de Blacklist
 
--   Permite que proprietário/admins adicionem mensagens específicas (usando `/addblacklist` em resposta) a uma lista negra para um chat.
--   Útil para marcar conteúdo inadequado ou spam recorrente.
--   `/blacklist` lista as mensagens marcadas e `/rmblacklist` remove uma entrada pelo seu ID.
+Permite que administradores adicionem mensagens específicas a uma lista negra para monitoramento e moderação do chat.
 
 ### Mensagens Recorrentes
 
--   Proprietário/admins podem configurar mensagens para serem enviadas automaticamente em intervalos regulares (dias, horas, minutos) usando `/sayrecurrent`.
--   `/listrecurrent` mostra as mensagens agendadas e `/delrecurrent` permite removê-las.
+Permite configurar mensagens para serem enviadas automaticamente em intervalos regulares no chat.
 
 ## Testes
 
@@ -166,51 +136,82 @@ Execute os testes automatizados com:
 pytest
 ```
 
-## Estrutura do Projeto
+## Controle de Acesso e Permissões
 
-```
-bro-bot/
-├── .env                      # Variáveis de ambiente (não versionado)
-├── .env.example              # Exemplo de variáveis de ambiente
-├── .gitignore                # Arquivos ignorados pelo Git
-├── README.md                 # Este arquivo
-├── requirements.txt          # Dependências Python
-├── docker-compose.yml        # Configuração do Docker Compose
-├── src/                      # Código fonte do bot
-│   ├── __init__.py
-│   ├── main.py               # Ponto de entrada da aplicação
-│   ├── bot/                  # Lógica específica do bot (handlers, etc.)
-│   │   ├── __init__.py
-│   │   ├── handlers.py       # Handlers gerais de comandos
-│   │   ├── checkin_handlers.py # Lógica do sistema de check-in
-│   │   ├── mention_handlers.py # Lógica para responder a menções (QA Fitness)
-│   │   ├── blacklist_handlers.py # Lógica do sistema de blacklist
-│   │   ├── messages.py       # Mensagens de texto usadas pelo bot
-│   │   ├── motivation.py     # Geração de mensagens motivacionais
-│   │   └── fitness_qa.py     # Interação com API Anthropic para QA
-│   └── utils/                # Utilitários e módulos de suporte
-│       ├── __init__.py
-│       ├── config.py         # Carregamento de configurações (.env)
-│       ├── filters.py        # Filtros de mensagem personalizados (permissões)
-│       ├── mongodb_client.py # Funções de interação com MongoDB
-│       ├── mongodb_instance.py # Inicialização da instância do cliente MongoDB
-│       ├── anthropic_client.py # Cliente para a API da Anthropic
-│       └── recurring_messages_manager.py # Gerenciador de mensagens recorrentes
-├── tests/                    # Testes automatizados (pytest)
-│   ├── __init__.py
-│   ├── test_*.py             # Arquivos de teste para diferentes módulos
-│   └── .pytest_cache/        # Cache do pytest
-├── scripts/                  # Scripts auxiliares (manutenção, etc.)
-│   ├── check_recurring_messages.py
-│   ├── clean_recurring_messages.py
-│   ├── create_test_recurring_message.py
-│   ├── fix_db.py
-│   └── check_db.py
-├── docs/                     # Documentação adicional (se houver)
-├── .git/                     # Metadados do Git
-└── venv/                     # Ambiente virtual Python (não versionado)
-```
+O bot opera com um sistema de permissões baseado em três níveis:
+
+1.  **Proprietário do Bot:** Definido pela variável `OWNER_ID` no `.env`. Tem acesso total a todos os comandos.
+2.  **Administradores do Bot:** Usuários adicionados pelo proprietário através do comando `/setadmin`. Podem usar a maioria dos comandos.
+3.  **Membros do Grupo:** Usuários regulares nos grupos onde o bot está. Acesso limitado às funcionalidades básicas como check-in e perguntas via menção.
+
+## Comandos do Bot
+
+### Comandos para Proprietário e Administradores
+
+- `/start` - Inicia a interação com o bot
+- `/help` - Mostra a mensagem de ajuda
+- `/motivacao` - Envia uma mensagem de motivação fitness
+- `/fecho` - Envia uma tirada sarcástica e debochada
+- `/apresentacao` - Responde com uma apresentação do bot
+- `/macros <descrição>` - Calcula macronutrientes
+- `/regras` - Mostra as regras do grupo
+- `/checkin` - Define âncora de check-in normal (1 ponto)
+- `/checkinplus` - Define âncora de check-in PLUS (2 pontos)
+- `/endcheckin` - Desativa o check-in ativo
+- `/checkinscore` - Mostra o ranking de check-ins
+- `/confirmcheckin` - Confirma manualmente o check-in de um usuário
+- `/addblacklist` - Adiciona uma mensagem à blacklist
+- `/blacklist` - Lista mensagens na blacklist
+- `/rmblacklist` - Remove uma mensagem da blacklist
+- `/say` - Faz o bot enviar uma mensagem
+- `/sayrecurrent` - Configura uma mensagem recorrente
+- `/listrecurrent` - Lista mensagens recorrentes configuradas
+- `/delrecurrent` - Deleta uma mensagem recorrente
+
+### Comandos Exclusivos do Proprietário
+
+- `/setadmin` - Adiciona um usuário como administrador do bot
+- `/deladmin` - Remove um usuário da lista de administradores
+- `/listadmins` - Lista todos os administradores do bot
+- `/monitor` - Começa a monitorar mensagens em um grupo
+- `/unmonitor` - Para de monitorar mensagens no grupo
 
 ## Contribuição
 
-Contribuições são bem-vindas! Sinta-se à vontade para abrir *issues* ou enviar *pull requests*. 
+Contribuições são bem-vindas! Sinta-se à vontade para abrir *issues* ou enviar *pull requests*.
+
+## Próximos Passos e Melhorias
+
+Algumas sugestões para futuras melhorias no projeto:
+
+1. **Otimização de Desempenho**:
+   - Implementar cache para consultas frequentes ao MongoDB
+   - Otimizar consultas ao banco de dados para aumentar a eficiência
+   - Considerar a implementação de um sistema de fila para operações assíncronas
+
+2. **Melhorias na IA**:
+   - Atualizar para modelos mais recentes da Anthropic (Claude 3.5 Sonnet)
+   - Implementar mecanismos de aprendizado contínuo com base no feedback dos usuários
+   - Adicionar capacidade de processamento de imagens para análise de fotos de treino
+
+3. **Novas Funcionalidades**:
+   - Sistema de lembretes personalizados para treinos
+   - Integração com aplicativos de fitness populares
+   - Implementação de desafios e competições entre membros
+   - Análise de métricas de progresso dos usuários
+   - Suporte para criação e compartilhamento de treinos personalizados
+
+4. **Segurança e Estabilidade**:
+   - Implementar testes de integração mais abrangentes
+   - Melhorar o sistema de log para facilitar a detecção de problemas
+   - Adicionar monitoramento de saúde do bot e alertas automáticos
+
+5. **Documentação e Usabilidade**:
+   - Melhorar a documentação para desenvolvedores
+   - Adicionar guias de uso para administradores e usuários finais
+   - Implementar um painel administrativo web para gerenciamento do bot
+
+6. **Escalabilidade**:
+   - Preparar a infraestrutura para suportar maior número de grupos e usuários
+   - Implementar sharding do MongoDB para maior escalabilidade
+   - Otimizar o consumo de recursos para reduzir custos operacionais 

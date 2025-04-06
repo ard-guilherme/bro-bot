@@ -3,33 +3,55 @@ Handlers para os comandos de check-in.
 """
 import logging
 from typing import Optional, Dict, Any
-from telegram import Update
+from telegram import Update, ReactionTypeEmoji
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 from telegram.error import TimedOut
 from src.utils.mongodb_instance import mongodb_client
 from src.bot.handlers import is_admin, send_temporary_message, delete_message_after
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Configuração de logging
 logger = logging.getLogger(__name__)
 
 async def checkin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    Handler para o comando /checkin.
+    Handler para o comando /checkin (pontuação padrão = 1).
     Define uma mensagem como âncora de check-in.
     
     Args:
         update (Update): Objeto de atualização do Telegram.
         context (ContextTypes.DEFAULT_TYPE): Contexto do callback.
     """
+    await set_anchor(update, context, points_value=1)
+
+async def checkinplus_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Handler para o comando /checkinplus (pontuação dobrada = 2).
+    Define uma mensagem como âncora de check-in especial.
+    
+    Args:
+        update (Update): Objeto de atualização do Telegram.
+        context (ContextTypes.DEFAULT_TYPE): Contexto do callback.
+    """
+    await set_anchor(update, context, points_value=2)
+
+async def set_anchor(update: Update, context: ContextTypes.DEFAULT_TYPE, points_value: int) -> None:
+    """
+    Lógica comum para definir uma mensagem como âncora de check-in com pontuação específica.
+    
+    Args:
+        update (Update): Objeto de atualização do Telegram.
+        context (ContextTypes.DEFAULT_TYPE): Contexto do callback.
+        points_value (int): Valor da pontuação associada à âncora.
+    """
     # Verifica se o usuário é administrador
     if not await is_admin(update, context):
         await send_temporary_message(
             update, 
             context, 
-            "Apenas administradores podem usar este comando."
+            "Apenas proprietário e administradores podem usar este comando."
         )
         return
     
@@ -38,7 +60,7 @@ async def checkin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await send_temporary_message(
             update, 
             context, 
-            "Por favor, use este comando respondendo à mensagem que deseja definir como check-in."
+            "Por favor, use este comando respondendo à mensagem que deseja definir como âncora de check-in."
         )
         return
     
@@ -46,27 +68,32 @@ async def checkin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     chat_id = update.effective_chat.id
     message_id = update.message.reply_to_message.message_id
     
-    # Define a mensagem como âncora de check-in
-    success = await mongodb_client.set_checkin_anchor(chat_id, message_id)
+    # Define a mensagem como âncora de check-in com a pontuação especificada
+    success = await mongodb_client.set_checkin_anchor(chat_id, message_id, points_value)
     
     if success:
         # Tenta deletar a mensagem de comando
         try:
             await update.message.delete()
         except Exception as e:
-            logger.error(f"Erro ao deletar mensagem de comando: {e}")
+            logger.error(f"Erro ao deletar mensagem de comando /checkin ou /checkinplus: {e}")
         
         # Envia mensagem de confirmação
+        confirmation_text = (
+            f"✅ Check-in PLUS ativado (pontos x{points_value})! Membros podem responder à mensagem marcada para registrar." 
+            if points_value > 1 
+            else "✅ Check-in padrão ativado! Membros podem responder à mensagem marcada para registrar."
+        )
         await context.bot.send_message(
             chat_id=chat_id,
-            text="✅ Check-in ativado! Os membros podem responder à mensagem marcada para registrar seu check-in diário.",
+            text=confirmation_text,
             reply_to_message_id=message_id
         )
     else:
         await send_temporary_message(
             update, 
             context, 
-            "❌ Erro ao ativar o check-in. Por favor, tente novamente."
+            f"❌ Erro ao ativar o check-in (pontos x{points_value}). Por favor, tente novamente."
         )
 
 async def endcheckin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -83,7 +110,7 @@ async def endcheckin_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await send_temporary_message(
             update, 
             context, 
-            "Apenas administradores podem usar este comando."
+            "Apenas proprietário e administradores podem usar este comando."
         )
         return
     
@@ -101,9 +128,11 @@ async def endcheckin_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return
     
-    # Obtém a contagem de check-ins para a âncora ativa
+    # Obtém a contagem de check-ins (número de participações) para a âncora ativa
     anchor_id = active_checkin["_id"]
     checkin_count = await mongodb_client.get_anchor_checkin_count(chat_id, anchor_id)
+    points_value = active_checkin.get("points_value", 1)
+    anchor_type = "PLUS" if points_value > 1 else "padrão"
     
     # Desativa o check-in atual
     success = await mongodb_client.end_checkin(chat_id)
@@ -118,7 +147,7 @@ async def endcheckin_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         # Envia mensagem de confirmação com a contagem de check-ins
         await context.bot.send_message(
             chat_id=chat_id,
-            text=f"✅ Check-in antigo finalizado! Foram registrados {checkin_count} check-ins."
+            text=f"✅ Check-in {anchor_type} finalizado! Foram registrados {checkin_count} check-ins."
         )
     else:
         await send_temporary_message(
@@ -129,7 +158,8 @@ async def endcheckin_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def handle_checkin_response(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    Handler para respostas a mensagens de check-in.
+    Handler para respostas a mensagens de check-in (com mídia).
+    Processa check-ins normais e PLUS, calcula pontos e gera respostas.
     
     Args:
         update (Update): Objeto de atualização do Telegram.
@@ -154,61 +184,107 @@ async def handle_checkin_response(update: Update, context: ContextTypes.DEFAULT_
     # Obtém o check-in ativo
     active_checkin = await mongodb_client.get_active_checkin(chat_id)
     
-    # Se não houver check-in ativo, retorna
-    if not active_checkin:
+    # Se não houver check-in ativo ou a resposta não for para a âncora, retorna
+    if not active_checkin or active_checkin["message_id"] != replied_message_id:
+        # Log a razão específica
+        if not active_checkin:
+            logger.debug(f"Ignorando resposta {update.message.message_id}: Nenhum check-in ativo no chat {chat_id}")
+        else:
+            logger.debug(f"Ignorando resposta {update.message.message_id}: Não é para a âncora ativa {active_checkin['message_id']}. Respondeu a {replied_message_id}")
         return
     
-    # Se a mensagem não for uma resposta à mensagem âncora de check-in, retorna
-    if active_checkin["message_id"] != replied_message_id:
-        logger.debug(f"Ignorando mensagem: resposta não é para a âncora de check-in. Âncora: {active_checkin['message_id']}, Resposta para: {replied_message_id}")
-        return
-    
-    logger.info(f"Check-in detectado de {update.effective_user.full_name} ({update.effective_user.id}) no chat {chat_id}")
+    logger.info(f"Check-in (resposta c/ mídia) detectado de {update.effective_user.full_name} ({update.effective_user.id}) no chat {chat_id} para âncora {active_checkin['_id']}")
     
     # Obtém informações do usuário
     user_id = update.effective_user.id
     user_name = update.effective_user.full_name or "Usuário"
     username = update.effective_user.username  # Captura o username
+    user_message_text = update.message.text or update.message.caption # Pega texto da mensagem ou legenda da mídia
     
-    # Registra o check-in do usuário
-    checkin_count = await mongodb_client.record_user_checkin(chat_id, user_id, user_name, username)
+    # Tenta registrar o check-in do usuário para esta âncora
+    # Retorna o NOVO SCORE TOTAL do usuário se sucesso, None se já fez check-in para esta âncora
+    new_total_score = await mongodb_client.record_user_checkin(chat_id, user_id, user_name, username)
     
-    # Se o usuário já fez check-in para esta âncora, retorna None
-    if checkin_count is None:
-        logger.debug(f"Usuário {user_id} já fez check-in para esta âncora")
-        # Use username para exibição se disponível
+    # Se o usuário já fez check-in para esta âncora específica, envia aviso e retorna
+    if new_total_score is None:
+        logger.debug(f"Usuário {user_id} já fez check-in para esta âncora {active_checkin['_id']}")
         display_name = f"@{username}" if username else user_name
         await send_temporary_message(
             update, 
             context, 
-            f"Você já fez seu check-in para esta mensagem, {display_name}! 😉"
+            f"Ei {display_name}, já contabilizamos seu check-in hoje 😉"
         )
         return
     
-    logger.info(f"Check-in registrado com sucesso. Total de check-ins do usuário: {checkin_count}")
+    # Check-in registrado com sucesso!
+    logger.info(f"Check-in registrado com sucesso para {user_id}. Novo score total: {new_total_score}")
     
-    # Adiciona reação de fogo à mensagem do usuário
+    # Determina a reação e prepara a mensagem de resposta
+    points_value = active_checkin.get("points_value", 1)
+    is_plus_checkin = points_value > 1
+    llm_response_text = None
+    reaction = "🔥" # Reação padrão
+    
+    # Obter cliente Anthropic do contexto
+    anthropic_client = context.bot_data.get("anthropic_client")
+    
+    if is_plus_checkin:
+        reaction = "🔥" # Reação para check-in plus (Testando com polegar)
+        # Tenta gerar resposta da LLM se houver texto e o cliente existir
+        if user_message_text and anthropic_client:
+            try:
+                # Passa o texto da mensagem do usuário para a LLM
+                llm_response_text = await anthropic_client.generate_checkin_response(user_message_text, user_name)
+                if not llm_response_text:
+                    logger.warning(f"LLM não retornou resposta para check-in plus de {user_id}")
+            except Exception as e:
+                logger.error(f"Erro ao gerar resposta da LLM para check-in plus: {e}")
+                # Continua sem a resposta da LLM em caso de erro
+        elif user_message_text and not anthropic_client:
+            logger.warning("Cliente Anthropic não encontrado no bot_data. Não é possível gerar resposta LLM para check-in plus.")
+
+    # Adiciona a reação apropriada
     try:
+        # Garante que a reação é uma string válida antes de enviar
+        if reaction not in ["🔥"]:
+            logger.error(f"Tentativa de usar reação inválida: {reaction}. Usando padrão 🔥.")
+            reaction = "🔥"
+            
+        # Cria o objeto ReactionTypeEmoji explicitamente
+        reaction_object = ReactionTypeEmoji(emoji=reaction)
+        
+        logger.debug(f"Tentando definir reação '{reaction}' (como objeto ReactionTypeEmoji) para mensagem {update.message.message_id} no chat {chat_id}")
         await context.bot.set_message_reaction(
             chat_id=chat_id,
             message_id=update.message.message_id,
-            reaction=["🔥"]
+            reaction=[reaction_object] # Passando o objeto explícito
         )
     except Exception as e:
-        logger.error(f"Erro ao adicionar reação à mensagem: {e}")
+        logger.error(f"Erro ao adicionar reação {reaction} à mensagem {update.message.message_id}: {e}")
     
-    # Gera uma mensagem de resposta personalizada
-    # Use username para exibição se disponível
+    # Monta a mensagem de resposta final
     display_name = f"@{username}" if username else user_name
-    response_message = generate_checkin_response(display_name, checkin_count)
+    base_response = f"Check-in {'PLUS' if is_plus_checkin else ''} confirmado, {display_name}! {reaction}" 
+    score_info = f"Você tem <b>{new_total_score}</b> pontos no total!"
     
-    # Responde ao usuário com uma mensagem permanente (sem usar send_temporary_message)
-    await update.message.reply_text(response_message, parse_mode=ParseMode.HTML)
+    # Adiciona a resposta da LLM se for check-in plus e a resposta foi gerada
+    if is_plus_checkin and llm_response_text:
+        final_response = f"{llm_response_text}\n\n{base_response} {score_info}"
+    else:
+        # Para check-in normal ou plus sem texto/erro LLM, usa a resposta padrão antiga (mas com score)
+        # A função generate_checkin_response_static é a antiga generate_checkin_response renomeada
+        static_part = generate_checkin_response_static(display_name, new_total_score) # Usa o score atualizado
+        # Extrai a parte inicial da mensagem estática (antes da pontuação)
+        static_base = static_part.split("Você tem")[0].strip()
+        final_response = f"{static_base} {score_info}"
+        
+    # Responde ao usuário com a mensagem final
+    await update.message.reply_text(final_response, parse_mode=ParseMode.HTML)
 
 async def checkinscore_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Handler para o comando /checkinscore.
-    Envia um scoreboard com os check-ins dos usuários.
+    Envia um scoreboard com os scores de check-ins dos usuários, agrupado por pontuação e com estatísticas.
     
     Args:
         update (Update): Objeto de atualização do Telegram.
@@ -216,153 +292,199 @@ async def checkinscore_command(update: Update, context: ContextTypes.DEFAULT_TYP
     """
     # Determina o chat para o qual exibir o scoreboard
     chat_id = update.effective_chat.id
-    chat_title = None
+    chat_title = "Check-ins"
     
     # Verifica se um nome de grupo foi fornecido como argumento
     if context.args and len(context.args) > 0:
         target_group_name = ' '.join(context.args)
-        target_chat_id = await mongodb_client._get_chat_id_by_name(target_group_name)
+        target_chat_info = await mongodb_client.get_chat_info_by_title(target_group_name)
         
-        if target_chat_id:
-            chat_id = target_chat_id
-            chat_title = target_group_name
+        if target_chat_info:
+            chat_id = target_chat_info["chat_id"]
+            # Usa o título encontrado no DB para o cabeçalho
+            chat_title = target_chat_info.get("title", target_group_name) 
         else:
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
-                text=f"Não foi possível encontrar o grupo '{target_group_name}'. Verifique o nome e tente novamente."
+                text=f"Não foi possível encontrar informações do grupo '{target_group_name}'. Verifique o nome ou se o bot está no grupo."
             )
             return
-    
-    # Obtém o scoreboard de check-ins
-    scoreboard = await mongodb_client.get_checkin_scoreboard(chat_id)
-    
+    elif update.effective_chat.type != "private":
+        # Se for em grupo, usa o título do grupo atual
+        chat_title = update.effective_chat.title
+    else:
+        # Se for privado sem args, não podemos mostrar scoreboard
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"Use /checkinscore <nome_do_grupo> para ver o placar de um grupo específico."
+        )
+        return
+
     # Tenta deletar a mensagem de comando
     try:
         await update.message.delete()
     except Exception as e:
-        logger.error(f"Erro ao deletar mensagem de comando: {e}")
+        logger.error(f"Erro ao deletar mensagem de comando /checkinscore: {e}")
     
-    if not scoreboard or len(scoreboard) == 0:
+    # --- Obtenção e Processamento dos Dados ---
+    
+    # 1. Obtém o scoreboard de check-ins (ordenado por score)
+    scoreboard_data = await mongodb_client.get_checkin_scoreboard(chat_id)
+    
+    if not scoreboard_data or len(scoreboard_data) == 0:
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text=f"Ainda não há check-ins registrados {f'no grupo {chat_title}' if chat_title else 'neste chat'}. 😢"
         )
         return
-    
-    # Obtém estatísticas adicionais
+        
+    # 2. Busca estatísticas adicionais
     total_participants = await mongodb_client.get_total_checkin_participants(chat_id)
-    first_checkin_date = await mongodb_client.get_first_checkin_date(chat_id)
-    total_checkins = await mongodb_client.count_total_checkins(chat_id)
+    first_checkin_date_obj = await mongodb_client.get_first_checkin_date(chat_id)
     
-    # Calcula há quantos dias o primeiro check-in foi registrado
-    days_since_first_checkin = None
-    if first_checkin_date:
-        days_since_first_checkin = (datetime.now() - first_checkin_date).days
-    
-    # Limita o scoreboard a no máximo 15 usuários
-    scoreboard = scoreboard[:15]
-    
-    # Cria a mensagem do scoreboard com o novo design visual
-    message = f"🏆 <b>GYM NATION CHECK-INS</b> 🏆\n\n"
-    
-    # Agrupa usuários com a mesma contagem
-    grouped_scoreboard = {}
-    for i, user in enumerate(scoreboard):
-        count = user['count']
-        if count not in grouped_scoreboard:
-            grouped_scoreboard[count] = []
-        grouped_scoreboard[count].append(user)
-    
-    # Adiciona usuários ao scoreboard
-    current_position = 1
-    for count, users in sorted(grouped_scoreboard.items(), key=lambda x: x[0], reverse=True):
-        # Atribui medalha com base na posição
-        if current_position == 1:
-            medal = "🥇 "
-        elif current_position == 2:
-            medal = "🥈 "
-        elif current_position == 3:
-            medal = "🥉 "
+    # Calcula há quantos dias foi o primeiro check-in
+    days_since_first = "N/A"
+    if first_checkin_date_obj:
+        # Garante que ambos são offset-naive ou offset-aware antes de subtrair
+        now_naive = datetime.now() 
+        if first_checkin_date_obj.tzinfo:
+             first_checkin_naive = first_checkin_date_obj.replace(tzinfo=None)
         else:
-            medal = "🔹 "
+             first_checkin_naive = first_checkin_date_obj
         
-        # Processa usuários com o novo formato
-        if len(users) > 1:
-            message += f"{medal}<b>{current_position}.</b> (<b>{count}</b> check-ins)\n"
-            # Lista cada usuário empatado em sua própria linha com um ícone
-            for user in users:
-                display_name = f"@{user['username']}" if user['username'] else user['user_name']
-                message += f"    👤 {display_name}\n"
-        else:
-            user = users[0]
-            display_name = f"@{user['username']}" if user['username'] else user['user_name']
-            message += f"{medal}<b>{current_position}.</b> {display_name}: <b>{count}</b> check-ins\n"
-        
-        # Incrementa a posição pelo número de usuários na posição atual
-        current_position += len(users)
+        delta = now_naive - first_checkin_naive
+        days_since_first = f"{delta.days} dias atrás" if delta.days > 0 else ("Hoje" if delta.days == 0 else "Data futura?")
     
-    # Adiciona mensagem motivacional
-    message += "\n💪 Continue mantendo a consistência! 🔥\n"
-    
-    # Adiciona estatísticas com formatação melhorada
-    if total_participants and days_since_first_checkin is not None:
-        message += "\n📊 <b>Estatísticas:</b>\n"
-        message += f"• <b>{total_participants}</b> pessoas já participaram\n"
-        message += f"• <b>{total_checkins}</b> check-ins no total\n"
-        message += f"• Primeiro check-in: <b>{days_since_first_checkin}</b> dias atrás"
-    
-    # Envia a mensagem para o chat atual (não para o chat_id consultado)
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text=message,
-        parse_mode=ParseMode.HTML
-    )
+    # 3. Calcula o total de pontos do grupo
+    total_group_score = sum(entry.get("score", 0) for entry in scoreboard_data)
 
-def generate_checkin_response(user_name: str, checkin_count: int) -> str:
-    """
-    Gera uma mensagem de resposta personalizada com base no número de check-ins do usuário.
-    
-    Args:
-        user_name (str): Nome do usuário.
-        checkin_count (int): Número de check-ins do usuário.
+    # 4. Agrupa usuários por score
+    grouped_scores = {}
+    for entry in scoreboard_data:
+        score = entry.get("score", 0)
+        if score not in grouped_scores:
+            grouped_scores[score] = []
+        # Armazena nome e username para exibição
+        user_info = {
+            "name": entry.get("user_name", f"User {entry['user_id']}"),
+            "username": entry.get("username")
+        }
+        grouped_scores[score].append(user_info)
         
-    Returns:
-        str: Mensagem personalizada.
+    # --- Montagem da Mensagem --- 
+    
+    scoreboard_lines = []
+    # Adiciona título
+    scoreboard_lines.append(f"🏆 <b>{chat_title.upper()} CHECK-INS</b> 🏆\n") 
+    
+    rank_icons = {1: "🥇", 2: "🥈", 3: "🥉"}
+    current_rank_pos = 0 # Posição no ranking (1, 2, 3...)
+    processed_users_count = 0 # Conta usuários já exibidos
+    max_users_to_show = 20 # Limite de usuários para exibir
+
+    # Itera sobre os scores únicos ordenados
+    for score_value in sorted(grouped_scores.keys(), reverse=True):
+        if processed_users_count >= max_users_to_show:
+            break # Sai se já exibiu o máximo de usuários
+            
+        users_at_this_score = grouped_scores[score_value]
+        current_rank_pos += 1
+        
+        rank_display = rank_icons.get(current_rank_pos, f"🔹 {current_rank_pos}.")
+        plural = "s" if score_value != 1 else ""
+        
+        # Linha do Rank e Pontuação
+        scoreboard_lines.append(f"{rank_display} (<b>{score_value}</b> check-in{plural})")
+        
+        # Lista usuários neste rank
+        for user_info in users_at_this_score:
+            if processed_users_count >= max_users_to_show:
+                scoreboard_lines.append("   ...") # Indica que há mais usuários não listados
+                break # Sai do loop interno também
+                
+            # Formata nome/username
+            name = user_info['name']
+            username = user_info['username']
+            # Limita o tamanho do nome para evitar quebra de linha (ajuste conforme necessário)
+            max_name_len = 25 
+            display_name = f"@{username}" if username else name
+            if len(display_name) > max_name_len:
+                display_name = display_name[:max_name_len-1] + "…"
+                
+            scoreboard_lines.append(f"   👤 {display_name}")
+            processed_users_count += 1
+            
+        if processed_users_count >= max_users_to_show and current_rank_pos < len(grouped_scores):
+             if not scoreboard_lines[-1].strip().endswith("..."):
+                  scoreboard_lines.append("   ...") # Garante que o ... apareça se cortou no meio de um rank
+             break # Sai do loop externo se atingiu o limite
+
+        scoreboard_lines.append("") # Linha em branco entre os ranks
+
+    # Remove a última linha em branco se existir
+    if scoreboard_lines and scoreboard_lines[-1] == "":
+        scoreboard_lines.pop()
+        
+    # Adiciona linha motivacional
+    scoreboard_lines.append("\n💪 Continue mantendo a consistência! 🔥")
+    
+    # Adiciona seção de estatísticas
+    scoreboard_lines.append("\n📊 <b>Estatísticas:</b>")
+    scoreboard_lines.append(f"• {total_participants} pessoas já participaram")
+    plural_stats = "s" if total_group_score != 1 else ""
+    scoreboard_lines.append(f"• {total_group_score} check-in{plural_stats} no total")
+    scoreboard_lines.append(f"• Primeiro check-in: {days_since_first}")
+
+    # Junta tudo em uma única string
+    scoreboard_message = "\n".join(scoreboard_lines)
+
+    # --- Envio da Mensagem --- 
+    try:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id, 
+            text=scoreboard_message, 
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True # Evita preview de links em usernames
+        )
+    except TimedOut:
+        logger.warning(f"Timeout ao enviar scoreboard para o chat {chat_id}")
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id, 
+            text="Ocorreu um timeout ao gerar o placar. Tente novamente mais tarde.",
+            disable_web_page_preview=True
+        )
+    except Exception as e:
+        logger.error(f"Erro ao enviar scoreboard para chat {chat_id}: {e}")
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id, 
+            text="Ocorreu um erro ao gerar o placar. Tente novamente mais tarde.",
+            disable_web_page_preview=True
+        )
+
+def generate_checkin_response_static(user_name: str, checkin_count: int) -> str:
     """
-    # Mensagens personalizadas com base no número de check-ins
-    if checkin_count == 1:
-        return f"<b>Primeiro</b> check-in de {user_name}! 🎉 Bem-vindo ao GYM NATION!"
-    elif checkin_count == 3:
-        return f"<b>Terceiro</b> check-in de {user_name}! 🔥 Você está criando consistência!"
-    elif checkin_count == 5:
-        return f"<b>Quinto</b> check-in de {user_name}! 💪 Você está no caminho certo!"
-    elif checkin_count == 10:
-        return f"Uau! {user_name} já está no check-in #<b>10</b>! Sua consistência é inspiradora! 🔥"
-    elif checkin_count == 30:
-        return f"Um <b>mês</b> de check-ins! {user_name} está construindo um hábito incrível! 🏆"
-    elif checkin_count == 100:
-        return f"INACREDITÁVEL! {user_name} alcançou <b>100</b> check-ins! Você é uma lenda! 👑"
-    elif checkin_count % 50 == 0:
-        return f"WOW! {user_name} atingiu <b>{checkin_count}</b> check-ins! Que dedicação impressionante! 🌟"
-    elif checkin_count % 25 == 0:
-        return f"Parabéns, {user_name}! Você alcançou <b>{checkin_count}</b> check-ins! Continue assim! 🚀"
-    elif checkin_count % 10 == 0:
-        return f"Mais um marco! {user_name} completou <b>{checkin_count}</b> check-ins! 💯"
-    else:
-        # Mensagens aleatórias para outros números de check-in
-        messages = [
-            f"Check-in #<b>{checkin_count}</b> registrado para {user_name}! 💪",
-            f"{user_name} está em chamas! 🔥 Check-in #<b>{checkin_count}</b>!",
-            f"Mais um dia, mais um check-in para {user_name}! #<b>{checkin_count}</b> 🏋️",
-            f"A consistência de {user_name} é admirável! Check-in #<b>{checkin_count}</b> 👏",
-            f"{user_name} não para! Check-in #<b>{checkin_count}</b> registrado! 🚀"
-        ]
-        return messages[checkin_count % len(messages)]
+    Gera uma mensagem de resposta ESTÁTICA padrão para check-in.
+    (Renomeada da antiga generate_checkin_response para clareza).
+    NOTA: checkin_count aqui é o SCORE TOTAL atual do usuário.
+    """
+    responses = [
+        f"Check-in registrado para {user_name}! 💪",
+        f"{user_name} está em chamas! Registrado check-in! 🔥",
+        f"Mais um dia, mais um check-in para {user_name}! 🏋️",
+        f"A consistência de {user_name} é admirável! Check-in 👏",
+        f"{user_name} não para! Check-in registrado! 🚀"
+    ]
+    # Usa uma lógica simples para variar a resposta baseada no score
+    # Garante que checkin_count é um inteiro >= 0
+    safe_checkin_count = max(0, int(checkin_count))
+    chosen_response = responses[safe_checkin_count % len(responses)]
+    # Adiciona a contagem de pontos no final
+    return f"{chosen_response} Você tem <b>{checkin_count}</b> pontos no total!"
 
 async def confirmcheckin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    Comando para confirmar manualmente um check-in que não foi processado automaticamente.
-    Deve ser usado por um administrador respondendo à mensagem de um usuário.
+    Handler para o comando /confirmcheckin.
+    Confirma manualmente o check-in de um usuário na âncora ativa.
     
     Args:
         update (Update): Objeto de atualização do Telegram.
@@ -373,120 +495,77 @@ async def confirmcheckin_command(update: Update, context: ContextTypes.DEFAULT_T
         await send_temporary_message(
             update, 
             context, 
-            "Apenas administradores podem usar este comando."
+            "Apenas proprietário e administradores podem usar este comando."
         )
         return
-    
-    # Verifica se o comando foi usado como resposta a outra mensagem
-    if not update.message.reply_to_message:
-        await send_temporary_message(
-            update, 
-            context, 
-            "Por favor, use este comando respondendo à mensagem do usuário para confirmar o check-in."
-        )
-        return
-    
-    # Obtém os IDs do chat e da mensagem
+
     chat_id = update.effective_chat.id
-    target_message = update.message.reply_to_message
-    target_user_id = target_message.from_user.id
-    target_user_name = target_message.from_user.full_name or f"@{target_message.from_user.username}" or "Usuário"
-    target_username = target_message.from_user.username  # Captura o username
-    
-    # Verifica se há um check-in ativo
-    try:
-        active_checkin = await mongodb_client.get_active_checkin(chat_id)
-        
-        if not active_checkin:
-            await send_temporary_message(
-                update, 
-                context, 
-                "Não há check-in ativo neste momento. Use /checkin para ativar um."
-            )
-            return
-        
-        # Registra o check-in do usuário
-        checkin_count = await mongodb_client.record_user_checkin(chat_id, target_user_id, target_user_name, target_username)
-        
-        # Se o usuário já fez check-in, envia mensagem e retorna
-        if checkin_count is None:
-            # Armazena a mensagem temporária antes de deletar o comando
-            temp_message = await context.bot.send_message(
-                chat_id=chat_id,
-                text=f"{target_user_name} já fez check-in para a âncora atual. 😉",
-                reply_to_message_id=target_message.message_id
-            )
-            
-            # Agenda a exclusão da mensagem temporária
-            asyncio.create_task(delete_message_after(temp_message, 20))
-            
-            # Tenta deletar a mensagem de comando
-            try:
-                await update.message.delete()
-            except Exception as e:
-                logger.error(f"Erro ao deletar mensagem de comando: {e}")
-                
-            return
-        
-        logger.info(f"Check-in manual registrado para {target_user_name} ({target_user_id}). Total: {checkin_count}")
-        
-        # Adiciona uma reação à mensagem do usuário para confirmar o check-in
+    target_user_id = None
+    target_user_name = "Usuário"
+    target_username = None
+
+    # Verifica se o comando foi usado em resposta a uma mensagem
+    if update.message.reply_to_message:
+        target_user = update.message.reply_to_message.from_user
+        target_user_id = target_user.id
+        target_user_name = target_user.full_name
+        target_username = target_user.username
+    # Verifica se um ID de usuário foi fornecido como argumento
+    elif context.args and len(context.args) >= 1 and context.args[0].isdigit():
+        target_user_id = int(context.args[0])
+        # Tenta obter informações do usuário pelo ID (pode falhar se o bot não viu o usuário recentemente)
         try:
-            await context.bot.set_message_reaction(
-                chat_id=chat_id,
-                message_id=target_message.message_id,
-                reaction=["🔥"]
-            )
-            
-            # Gera e envia uma mensagem de confirmação personalizada
-            response_message = generate_checkin_response(target_user_name, checkin_count)
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=response_message,
-                reply_to_message_id=target_message.message_id,
-                parse_mode=ParseMode.HTML
-            )
-            
-            # Tenta deletar a mensagem de comando DEPOIS de enviar a resposta
-            try:
-                await update.message.delete()
-            except Exception as e:
-                logger.error(f"Erro ao deletar mensagem de comando: {e}")
-                
-        except Exception as reaction_error:
-            logger.error(f"Erro ao adicionar reação à mensagem: {reaction_error}")
-            # Apenas envia mensagem de confirmação se houver erro na reação
-            if not isinstance(reaction_error, TimedOut):
-                # Gera e envia uma mensagem de confirmação personalizada
-                response_message = generate_checkin_response(target_user_name, checkin_count)
-                await context.bot.send_message(
-                    chat_id=chat_id,
-                    text=response_message,
-                    reply_to_message_id=target_message.message_id,
-                    parse_mode=ParseMode.HTML
-                )
-                
-                # Tenta deletar a mensagem de comando DEPOIS de enviar a resposta
-                try:
-                    await update.message.delete()
-                except Exception as e:
-                    logger.error(f"Erro ao deletar mensagem de comando: {e}")
-                
-    except Exception as db_error:
-        logger.error(f"Erro ao registrar check-in no banco de dados: {db_error}")
-        
-        # Envia mensagem de erro antes de tentar deletar o comando
-        temp_message = await context.bot.send_message(
-            chat_id=chat_id,
-            text="❌ Erro ao registrar check-in. Por favor, tente novamente.",
-            reply_to_message_id=target_message.message_id
+            member = await context.bot.get_chat_member(chat_id, target_user_id)
+            target_user_name = member.user.full_name
+            target_username = member.user.username
+        except Exception as e:
+            logger.warning(f"Não foi possível obter info para user_id {target_user_id} em confirmcheckin: {e}")
+            target_user_name = f"Usuário {target_user_id}" # Usa ID se nome não encontrado
+    else:
+        await send_temporary_message(
+            update,
+            context,
+            "Use /confirmcheckin respondendo a uma mensagem do usuário ou com o ID do usuário. Ex: /confirmcheckin 123456789"
         )
-        
-        # Agenda a exclusão da mensagem temporária
-        asyncio.create_task(delete_message_after(temp_message, 20))
-        
+        return
+
+    if target_user_id:
+        # Tenta confirmar o check-in manualmente
+        new_total_score = await mongodb_client.confirm_manual_checkin(
+            chat_id, target_user_id, target_user_name, target_username
+        )
+
         # Tenta deletar a mensagem de comando
         try:
             await update.message.delete()
         except Exception as e:
-            logger.error(f"Erro ao deletar mensagem de comando: {e}") 
+            logger.error(f"Erro ao deletar mensagem de comando /confirmcheckin: {e}")
+
+        if new_total_score is not None:
+            display_name = f"@{target_username}" if target_username else target_user_name
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"✅ Check-in manual confirmado para {display_name}! Novo score total: <b>{new_total_score}</b> pontos.",
+                parse_mode=ParseMode.HTML
+            )
+        else:
+            # Mensagem se já fez check-in ou erro
+            display_name = f"@{target_username}" if target_username else target_user_name
+            active_checkin = await mongodb_client.get_active_checkin(chat_id)
+            if active_checkin:
+                # Verifica se o erro foi por já ter feito check-in
+                existing = await mongodb_client.db.user_checkins.find_one({
+                    "chat_id": chat_id,
+                    "user_id": target_user_id,
+                    "anchor_id": active_checkin['_id']
+                })
+                if existing:
+                    msg = f"⚠️ {display_name} já possui check-in registrado para a âncora atual."
+                else:
+                    msg = f"❌ Ocorreu um erro ao tentar confirmar o check-in para {display_name}."
+                await context.bot.send_message(chat_id=chat_id, text=msg)
+            else:
+                 await context.bot.send_message(
+                     chat_id=chat_id,
+                     text=f"❌ Não há check-in ativo para confirmar manualmente."
+                 ) 

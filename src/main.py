@@ -24,6 +24,7 @@ from telegram.request import HTTPXRequest
 from src.utils.config import Config
 from src.utils.filters import CustomFilters
 from src.utils.mongodb_instance import mongodb_client, initialize_mongodb
+from src.utils.anthropic_client import AnthropicClient
 from src.bot.handlers import (
     start_command,
     help_command,
@@ -47,6 +48,7 @@ from src.bot.handlers import (
 )
 from src.bot.checkin_handlers import (
     checkin_command,
+    checkinplus_command,
     endcheckin_command,
     handle_checkin_response,
     checkinscore_command,
@@ -85,7 +87,8 @@ async def setup_commands(application: Application) -> None:
     
     # Comandos apenas para administradores
     admin_commands = commands + [
-        BotCommand("checkin", "Define uma mensagem como âncora de check-in"),
+        BotCommand("checkin", "Define uma mensagem como âncora de check-in (normal)"),
+        BotCommand("checkinplus", "Define uma mensagem como âncora de check-in (PLUS x2)"),
         BotCommand("endcheckin", "Desativa o check-in atual"),
         BotCommand("confirmcheckin", "Confirma manualmente o check-in de um usuário"),
         BotCommand("addblacklist", "Adiciona uma mensagem à blacklist"),
@@ -150,6 +153,18 @@ async def main_async():
             # Cria a aplicação com timeout ajustado e o request personalizado
             application = Application.builder().token(token).request(request).build()
             
+            # Instanciar e armazenar o cliente Anthropic no bot_data
+            try:
+                anthropic_api_key = Config.get_anthropic_api_key()
+                if anthropic_api_key:
+                    anthropic_client_instance = AnthropicClient(api_key=anthropic_api_key)
+                    application.bot_data["anthropic_client"] = anthropic_client_instance
+                    logger.info("Cliente Anthropic inicializado e armazenado em bot_data.")
+                else:
+                    logger.warning("Chave API da Anthropic não configurada. Funcionalidades LLM estarão desativadas.")
+            except Exception as e:
+                logger.error(f"Erro ao inicializar o cliente Anthropic: {e}")
+            
             # Cria o filtro de proprietário
             owner_filter = CustomFilters.owner_filter()
             only_owner_filter = CustomFilters.only_owner_filter()
@@ -169,6 +184,7 @@ async def main_async():
             
             # Adiciona handlers para comandos de check-in (apenas para o proprietário)
             application.add_handler(CommandHandler("checkin", checkin_command, filters=owner_filter))
+            application.add_handler(CommandHandler("checkinplus", checkinplus_command, filters=owner_filter))
             application.add_handler(CommandHandler("endcheckin", endcheckin_command, filters=owner_filter))
             application.add_handler(CommandHandler("checkinscore", checkinscore_command, filters=owner_filter))
             application.add_handler(CommandHandler("confirmcheckin", confirmcheckin_command, filters=owner_filter))

@@ -25,7 +25,7 @@ class MongoDBClient:
         """
         self.connection_string = connection_string or os.getenv(
             "MONGODB_CONNECTION_STRING", 
-            "mongodb://admin:password@localhost:27017"
+            "MONGODB_CONNECTION_STRINGMONGODB_CONNECTION_STRING"
         )
         self.client = None
         self.db = None
@@ -55,13 +55,14 @@ class MongoDBClient:
     
     # Métodos para gerenciar o check-in
     
-    async def set_checkin_anchor(self, chat_id: int, message_id: int) -> bool:
+    async def set_checkin_anchor(self, chat_id: int, message_id: int, points_value: int = 1) -> bool:
         """
         Define uma mensagem como âncora de check-in.
         
         Args:
             chat_id (int): ID do chat.
             message_id (int): ID da mensagem âncora.
+            points_value (int): Valor em pontos deste check-in (default: 1).
             
         Returns:
             bool: True se a operação foi bem-sucedida, False caso contrário.
@@ -75,7 +76,8 @@ class MongoDBClient:
                 "chat_id": chat_id,
                 "message_id": message_id,
                 "created_at": datetime.now(),
-                "active": True
+                "active": True,
+                "points_value": points_value
             })
             
             return result.acknowledged
@@ -101,7 +103,7 @@ class MongoDBClient:
             
             return result.acknowledged
         except PyMongoError as e:
-            logger.error(f"Erro ao desativar check-in: {e}")
+            logger.error(f"Erro ao desativar check-in para chat {chat_id}: {e}")
             return False
     
     async def get_anchor_checkin_count(self, chat_id: int, anchor_id: str) -> int:
@@ -134,7 +136,8 @@ class MongoDBClient:
             chat_id (int): ID do chat.
             
         Returns:
-            Optional[Dict]: Dicionário com os dados do check-in, ou None se não houver check-in ativo.
+            Optional[Dict]: Dicionário com os dados do check-in (incluindo points_value),
+                           ou None se não houver check-in ativo.
         """
         try:
             result = await self.db.checkin_anchors.find_one(
@@ -146,282 +149,210 @@ class MongoDBClient:
             logger.error(f"Erro ao obter check-in ativo: {e}")
             return None
     
-    async def register_checkin(self, chat_id: int, user_id: int, user_name: str, message_id: int) -> bool:
+    async def confirm_manual_checkin(self, chat_id: int, user_id: int, user_name: str, username: str = None) -> Optional[int]:
         """
-        Registra um check-in de um usuário.
-        
-        Args:
-            chat_id (int): ID do chat.
-            user_id (int): ID do usuário.
-            user_name (str): Nome do usuário.
-            message_id (int): ID da mensagem de check-in.
-            
-        Returns:
-            bool: True se a operação foi bem-sucedida, False caso contrário.
+        Confirma manualmente um check-in para um usuário no check-in ativo.
+        Retorna o novo total de pontos do usuário se bem-sucedido, None se já fez check-in ou erro.
         """
         try:
-            # Verifica se existe um check-in ativo
             active_checkin = await self.get_active_checkin(chat_id)
-            
             if not active_checkin:
-                logger.warning(f"Tentativa de registro de check-in sem check-in ativo: chat_id={chat_id}, user_id={user_id}")
-                return False
-            
-            anchor_id = active_checkin["_id"]
-            
-            # Verifica se o usuário já fez check-in neste check-in ativo
-            existing_checkin = await self.db.checkins.find_one({
-                "chat_id": chat_id,
-                "user_id": user_id,
-                "anchor_id": anchor_id
-            })
-            
-            if existing_checkin:
-                logger.info(f"Usuário já registrou check-in: chat_id={chat_id}, user_id={user_id}")
-                return False
-            
-            # Registra o novo check-in
-            result = await self.db.checkins.insert_one({
-                "chat_id": chat_id,
-                "user_id": user_id,
-                "user_name": user_name,
-                "message_id": message_id,
-                "anchor_id": anchor_id,
-                "created_at": datetime.now()
-            })
-            
-            return result.acknowledged
-        except PyMongoError as e:
-            logger.error(f"Erro ao registrar check-in: {e}")
-            return False
-    
-    async def get_checkin_count(self, chat_id: int, user_id: int) -> int:
-        """
-        Obtém o número de check-ins de um usuário em um chat.
-        
-        Args:
-            chat_id (int): ID do chat.
-            user_id (int): ID do usuário.
-            
-        Returns:
-            int: Número de check-ins do usuário.
-        """
-        try:
-            count = await self.db.checkins.count_documents({
-                "chat_id": chat_id,
-                "user_id": user_id
-            })
-            
-            return count
-        except PyMongoError as e:
-            logger.error(f"Erro ao obter contagem de check-ins: {e}")
-            return 0
-    
-    async def get_checkin_ranking(self, chat_id: int, limit: int = 10) -> List[Dict]:
-        """
-        Obtém o ranking de check-ins para um chat.
-        
-        Args:
-            chat_id (int): ID do chat.
-            limit (int): Número máximo de usuários a serem retornados.
-            
-        Returns:
-            List[Dict]: Lista de dicionários com os dados dos usuários e suas contagens de check-in.
-        """
-        try:
-            pipeline = [
-                {"$match": {"chat_id": chat_id}},
-                {"$group": {
-                    "_id": {"user_id": "$user_id", "user_name": "$user_name"},
-                    "count": {"$sum": 1},
-                    "last_checkin": {"$max": "$created_at"}
-                }},
-                {"$sort": {"count": -1, "last_checkin": -1}},
-                {"$limit": limit},
-                {"$project": {
-                    "user_id": "$_id.user_id",
-                    "user_name": "$_id.user_name",
-                    "count": 1,
-                    "last_checkin": 1,
-                    "_id": 0
-                }}
-            ]
-            
-            result = []
-            async for doc in self.db.checkins.aggregate(pipeline):
-                result.append(doc)
-            
-            return result
-        except PyMongoError as e:
-            logger.error(f"Erro ao obter ranking de check-ins: {e}")
-            return []
-    
-    async def confirm_manual_checkin(self, chat_id: int, user_id: int, user_name: str) -> bool:
-        """
-        Confirma manualmente o check-in de um usuário.
-        
-        Args:
-            chat_id (int): ID do chat.
-            user_id (int): ID do usuário.
-            user_name (str): Nome do usuário.
-            
-        Returns:
-            bool: True se a operação foi bem-sucedida, False caso contrário.
-        """
-        try:
-            # Verifica se existe um check-in ativo
-            active_checkin = await self.get_active_checkin(chat_id)
-            
-            if not active_checkin:
-                logger.warning(f"Tentativa de confirmação manual de check-in sem check-in ativo: chat_id={chat_id}, user_id={user_id}")
-                return False
-            
-            anchor_id = active_checkin["_id"]
-            
-            # Verifica se o usuário já fez check-in neste check-in ativo
-            existing_checkin = await self.db.checkins.find_one({
-                "chat_id": chat_id,
-                "user_id": user_id,
-                "anchor_id": anchor_id
-            })
-            
-            if existing_checkin:
-                logger.info(f"Usuário já registrou check-in: chat_id={chat_id}, user_id={user_id}")
-                return False
-            
-            # Registra o novo check-in
-            result = await self.db.checkins.insert_one({
-                "chat_id": chat_id,
-                "user_id": user_id,
-                "user_name": user_name,
-                "message_id": None,  # Check-in manual não tem mensagem associada
-                "anchor_id": anchor_id,
-                "created_at": datetime.now(),
-                "manual": True  # Marca como check-in manual
-            })
-            
-            return result.acknowledged
-        except PyMongoError as e:
-            logger.error(f"Erro ao confirmar check-in manual: {e}")
-            return False
-    
-    async def record_user_checkin(self, chat_id: int, user_id: int, user_name: str, username: str = None) -> Optional[int]:
-        """
-        Registra um check-in de um usuário.
-        
-        Args:
-            chat_id (int): ID do chat.
-            user_id (int): ID do usuário.
-            user_name (str): Nome do usuário.
-            username (str, optional): Nome de usuário (@username) do Telegram.
-            
-        Returns:
-            Optional[int]: Número total de check-ins do usuário, ou None se falhar.
-        """
-        try:
-            # Verifica se existe um check-in ativo
-            active_checkin = await self.get_active_checkin(chat_id)
-            
-            if not active_checkin:
-                logger.warning(f"Tentativa de registro de check-in sem check-in ativo: chat_id={chat_id}, user_id={user_id}")
+                logger.warning(f"Tentativa de confirmação manual sem check-in ativo: chat {chat_id}")
                 return None
-            
+
             anchor_id = active_checkin["_id"]
-            
-            # Verifica se o usuário já fez check-in neste check-in ativo
+            points_value = active_checkin.get("points_value", 1) # Obtém valor da âncora
+
+            # Verifica se já existe check-in para esta âncora
             existing_checkin = await self.db.user_checkins.find_one({
                 "chat_id": chat_id,
                 "user_id": user_id,
                 "anchor_id": anchor_id
             })
-            
+
             if existing_checkin:
-                logger.info(f"Usuário já registrou check-in: chat_id={chat_id}, user_id={user_id}")
+                logger.info(f"Check-in manual ignorado: usuário {user_id} já fez check-in para a âncora {anchor_id}")
                 return None
-            
-            # Registra o novo check-in
-            checkin_doc = {
+
+            # Insere o novo registro de check-in com a pontuação
+            insert_result = await self.db.user_checkins.insert_one({
                 "chat_id": chat_id,
                 "user_id": user_id,
                 "user_name": user_name,
+                "username": username,
                 "anchor_id": anchor_id,
+                "checkin_type": "manual", # Indica que foi manual
+                "points_value": points_value, # Salva a pontuação
                 "created_at": datetime.now()
-            }
-            
-            # Adiciona o username se disponível
-            if username:
-                checkin_doc["username"] = username
-                
-            await self.db.user_checkins.insert_one(checkin_doc)
-            
-            # Atualiza também o username em todos os check-ins anteriores deste usuário
-            # para que o scoreboard mostre sempre o username mais recente
-            if username:
-                await self.db.user_checkins.update_many(
-                    {"chat_id": chat_id, "user_id": user_id, "username": {"$exists": False}},
-                    {"$set": {"username": username}}
-                )
-            
-            # Conta o número total de check-ins do usuário
-            count = await self.db.user_checkins.count_documents({
-                "chat_id": chat_id,
-                "user_id": user_id
             })
-            
-            return count
+
+            if not insert_result.acknowledged:
+                logger.error(f"Falha ao inserir check-in manual para usuário {user_id}, âncora {anchor_id}")
+                return None
+
+            # Calcula e retorna o novo score total (agora soma os pontos)
+            new_total_score = await self.calculate_user_total_score(chat_id, user_id)
+            logger.info(f"Check-in manual confirmado para {user_name} ({user_id}). Novo score: {new_total_score}")
+            return new_total_score
+
+        except PyMongoError as e:
+            logger.error(f"Erro ao confirmar check-in manual: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Erro inesperado ao confirmar check-in manual: {e}")
+            return None
+
+    async def record_user_checkin(self, chat_id: int, user_id: int, user_name: str, username: str = None) -> Optional[int]:
+        """
+        Registra um check-in de um usuário para a âncora ativa.
+        Verifica se o usuário já fez check-in para esta âncora específica.
+        Salva a pontuação do check-in (baseada na âncora) e o tipo ('normal' ou 'plus').
+        Retorna o novo total de pontos do usuário (somando as pontuações) se o check-in for registrado com sucesso,
+        None se o usuário já fez check-in para esta âncora ou se ocorrer um erro.
+        """
+        try:
+            # 1. Encontra a âncora ativa
+            active_checkin = await self.get_active_checkin(chat_id)
+            if not active_checkin:
+                logger.debug(f"Tentativa de check-in sem âncora ativa no chat {chat_id} por user {user_id}")
+                return None # Não há âncora ativa
+
+            anchor_id = active_checkin["_id"]
+            points_value = active_checkin.get("points_value", 1) # Pega a pontuação da âncora
+            checkin_type = "plus" if points_value > 1 else "normal" # Define o tipo
+
+            # 2. Verifica se o usuário já fez check-in *para esta âncora*
+            existing_checkin = await self.db.user_checkins.find_one({
+                "chat_id": chat_id,
+                "user_id": user_id,
+                "anchor_id": anchor_id
+            })
+
+            if existing_checkin:
+                logger.debug(f"Usuário {user_id} já fez check-in para a âncora {anchor_id}")
+                return None # Já fez check-in para esta âncora
+
+            # 3. Registra o novo check-in na collection 'user_checkins' com pontuação e tipo
+            insert_result = await self.db.user_checkins.insert_one({
+                "chat_id": chat_id,
+                "user_id": user_id,
+                "user_name": user_name,
+                "username": username,
+                "anchor_id": anchor_id, # Link para a âncora específica
+                "checkin_type": checkin_type, # Salva 'normal' ou 'plus'
+                "points_value": points_value, # Salva a pontuação do check-in
+                "created_at": datetime.now()
+            })
+
+            if not insert_result.acknowledged:
+                logger.error(f"Falha ao inserir registro de check-in para usuário {user_id}, âncora {anchor_id}")
+                return None # Falha ao inserir
+
+            # 4. Calcula e retorna o novo score total do usuário (agora somando pontos)
+            new_total_score = await self.calculate_user_total_score(chat_id, user_id)
+            logger.info(f"Check-in {checkin_type} ({points_value} pts) registrado para {user_name} ({user_id}) na âncora {anchor_id}. Novo score total: {new_total_score}")
+            return new_total_score
+
         except PyMongoError as e:
             logger.error(f"Erro ao registrar check-in: {e}")
             return None
-    
-    async def get_checkin_scoreboard(self, chat_id: int) -> List[Dict[str, Any]]:
+        except Exception as e:
+            logger.error(f"Erro inesperado ao registrar check-in: {e}")
+            return None
+
+    async def calculate_user_total_score(self, chat_id: int, user_id: int) -> int:
         """
-        Obtém o placar de check-ins para um chat específico.
+        Calcula o score total de um usuário em um chat somando os 'points_value' de seus check-ins.
         
         Args:
             chat_id (int): ID do chat.
+            user_id (int): ID do usuário.
             
         Returns:
-            List[Dict[str, Any]]: Lista de usuários com suas contagens de check-in, ordenada por contagem.
+            int: Score total do usuário, ou 0 se não houver check-ins ou erro.
         """
         try:
-            # Obtém a lista de usuários únicos que fizeram check-in neste chat
-            user_ids = await self.db.user_checkins.distinct("user_id", {"chat_id": chat_id})
-            
-            scoreboard = []
-            for user_id in user_ids:
-                # Obtém o check-in mais recente do usuário para ter os dados mais atualizados
-                user_info = await self.db.user_checkins.find_one(
-                    {"user_id": user_id, "chat_id": chat_id},
-                    sort=[("created_at", -1)]  # Ordenar pelo mais recente
-                )
-                
-                if user_info:
-                    # Conta o número de check-ins do usuário
-                    count = await self.db.user_checkins.count_documents({
+            pipeline = [
+                {
+                    "$match": {
                         "chat_id": chat_id,
-                        "user_id": user_id
-                    })
-                    
-                    # Obtém o nome de usuário (username) do Telegram, se disponível
-                    username = user_info.get("username", None)
-                    user_name = user_info.get("user_name", f"Usuário {user_id}")
-                    
-                    # Adiciona ao placar
-                    scoreboard.append({
                         "user_id": user_id,
-                        "user_name": user_name,
-                        "username": username,  # Pode ser None se não estiver disponível
-                        "count": count
-                    })
+                        "points_value": {"$exists": True} # Considera apenas check-ins com pontuação definida
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": "$user_id", # Agrupa pelo usuário
+                        "total_score": {"$sum": "$points_value"} # Soma os pontos
+                    }
+                }
+            ]
             
-            # Ordena o placar por contagem (decrescente)
-            scoreboard.sort(key=lambda x: x["count"], reverse=True)
+            result_cursor = self.db.user_checkins.aggregate(pipeline)
+            result = await result_cursor.to_list(length=1) # Espera apenas um resultado
             
-            return scoreboard
+            if result:
+                return result[0].get("total_score", 0)
+            else:
+                return 0 # Nenhum check-in encontrado
         except PyMongoError as e:
-            logger.error(f"Erro ao obter placar de check-ins: {e}")
-            return []
-    
+            logger.error(f"Erro ao calcular score total para user {user_id} no chat {chat_id}: {e}")
+            return 0
+        except Exception as e:
+            logger.error(f"Erro inesperado ao calcular score total: {e}")
+            return 0
+
+    async def get_checkin_scoreboard(self, chat_id: int) -> List[Dict[str, Any]]:
+        """
+        Obtém o ranking de check-ins (scoreboard) para um chat, ordenado por score total.
+        O score é calculado somando os 'points_value' de cada check-in do usuário.
+        """
+        try:
+            pipeline = [
+                {
+                    "$match": {
+                        "chat_id": chat_id,
+                        "points_value": {"$exists": True} # Considera apenas check-ins com pontuação
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": "$user_id", # Agrupa por usuário
+                        # Pega o último nome/username conhecido para exibição
+                        "user_name": {"$last": "$user_name"},
+                        "username": {"$last": "$username"},
+                        "total_score": {"$sum": "$points_value"}, # Soma os pontos
+                        "last_checkin_time": {"$max": "$created_at"} # Pega a data do último check-in
+                    }
+                },
+                {
+                    "$sort": {
+                        "total_score": -1, # Ordena por score (maior primeiro)
+                        "last_checkin_time": -1 # Desempate pelo check-in mais recente
+                    }
+                },
+                {
+                  "$limit": 50 # Limita aos top 50 para evitar mensagens muito longas
+                },
+                {
+                    "$project": { # Formata a saída
+                        "_id": 0, # Remove o _id do grupo
+                        "user_id": "$_id", # O _id do grupo é o user_id
+                        "user_name": "$user_name",
+                        "username": "$username",
+                        "score": "$total_score",
+                        "last_checkin": "$last_checkin_time"
+                    }
+                }
+            ]
+
+            scoreboard = await self.db.user_checkins.aggregate(pipeline).to_list(length=None) # Pega todos os resultados até o limite
+            return scoreboard
+
+        except PyMongoError as e:
+            logger.error(f"Erro ao gerar scoreboard para chat {chat_id}: {e}")
+            return [] # Retorna lista vazia em caso de erro
+
     async def get_total_checkin_participants(self, chat_id: int) -> int:
         """
         Obtém o número total de participantes distintos que já fizeram check-in no chat.
@@ -483,24 +414,18 @@ class MongoDBClient:
     
     async def get_user_checkin_count(self, chat_id: int, user_id: int) -> int:
         """
-        Obtém o número de check-ins de um usuário em um chat específico.
-        
-        Args:
-            chat_id (int): ID do chat.
-            user_id (int): ID do usuário.
-            
-        Returns:
-            int: Número de check-ins do usuário.
+        Obtém o número de documentos de check-in de um usuário em um chat.
+        NOTA: Isto conta o NÚMERO de check-ins, não o SCORE total.
+              Use calculate_user_total_score para obter o score.
         """
         try:
             count = await self.db.user_checkins.count_documents({
                 "chat_id": chat_id,
                 "user_id": user_id
             })
-            
             return count
         except PyMongoError as e:
-            logger.error(f"Erro ao obter contagem de check-ins do usuário: {e}")
+            logger.error(f"Erro ao obter contagem de check-ins do usuário {user_id}: {e}")
             return 0
     
     # Métodos para gerenciar administradores
@@ -522,17 +447,37 @@ class MongoDBClient:
             existing_admin = await self.db.bot_admins.find_one({"admin_id": admin_id})
             
             if existing_admin:
-                return False  # Admin já existe
-            
-            # Adiciona o novo administrador
-            result = await self.db.bot_admins.insert_one({
-                "admin_id": admin_id,
-                "admin_name": admin_name,
-                "added_by": added_by,
-                "added_at": datetime.now()
-            })
-            
-            return result.acknowledged
+                # Se existe e está ativo, não faz nada e retorna False
+                if existing_admin.get("is_active", False):
+                    logger.info(f"Admin {admin_id} já existe e está ativo.")
+                    return False
+                else:
+                    # Se existe mas está inativo, reativa e atualiza nome/timestamp
+                    logger.info(f"Reativando admin inativo {admin_id}")
+                    update_result = await self.db.bot_admins.update_one(
+                        {"admin_id": admin_id},
+                        {
+                            "$set": {
+                                "is_active": True,
+                                "admin_name": admin_name, # Atualiza o nome
+                                "added_by": added_by, # Atualiza quem adicionou/reativou
+                                "reactivated_at": datetime.now(),
+                                "added_at": existing_admin.get("added_at") # Mantém data original
+                            }
+                        }
+                    )
+                    return update_result.modified_count > 0 # Retorna True se reativado
+            else:
+                # Se não existe, insere um novo admin ativo
+                logger.info(f"Adicionando novo admin {admin_id}")
+                insert_result = await self.db.bot_admins.insert_one({
+                    "admin_id": admin_id,
+                    "admin_name": admin_name,
+                    "added_by": added_by,
+                    "added_at": datetime.now(),
+                    "is_active": True # Define como ativo por padrão
+                })
+                return insert_result.acknowledged
         except PyMongoError as e:
             logger.error(f"Erro ao adicionar administrador: {e}")
             return False
@@ -1092,8 +1037,8 @@ class MongoDBClient:
         try:
             cursor = self.db.blacklist.find({"chat_id": chat_id}).sort("added_at", -1)
             blacklist = []
-            async for doc in cursor:
-                blacklist.append(doc)
+            async for item in cursor:
+                blacklist.append(item)
             return blacklist
         except PyMongoError as e:
             logger.error(f"Erro ao obter blacklist do chat {chat_id}: {e}")
@@ -1171,23 +1116,18 @@ class MongoDBClient:
             # Log para debug
             if chat_data:
                 logger.info(f"Grupo encontrado: {chat_data}")
+                return chat_data.get("chat_id")
             else:
                 logger.info("Nenhum grupo encontrado")
-                
+
                 # Lista todos os grupos monitorados para debug
                 cursor = self.db.monitored_chats.find({})
                 all_chats = []
                 async for chat in cursor:
-                    all_chats.append({
-                        "chat_id": chat.get("chat_id"),
-                        "title": chat.get("title"),
-                        "username": chat.get("username")
-                    })
-                logger.info(f"Grupos monitorados disponíveis: {all_chats}")
-            
-            if chat_data:
-                return chat_data["chat_id"]
-            return None
+                    all_chats.append(chat)
+                logger.debug(f"Grupos monitorados atualmente: {all_chats}")
+
+                return None
         except PyMongoError as e:
             logger.error(f"Erro ao obter ID do chat pelo nome/username '{group_name}': {e}")
             return None
@@ -1257,3 +1197,57 @@ class MongoDBClient:
         except Exception as e:
             logger.error(f"Erro ao remover item da blacklist por link: {e}")
             return False
+
+    # Métodos para gerenciar informações do chat
+    
+    async def update_chat_info(self, chat_id: int, title: str, chat_type: str):
+        """
+        Atualiza ou insere informações sobre um chat.
+        """
+        try:
+            await self.db.chats.update_one(
+                {"chat_id": chat_id},
+                {"$set": {"title": title, "type": chat_type, "last_seen": datetime.now()}},
+                upsert=True # Cria o documento se não existir
+            )
+            logger.debug(f"Informações do chat {chat_id} ({title}) atualizadas.")
+        except PyMongoError as e:
+            logger.error(f"Erro ao atualizar informações do chat {chat_id}: {e}")
+            
+    async def get_chat_info(self, chat_id: int) -> Optional[Dict]:
+        """
+        Obtém informações sobre um chat pelo ID.
+        """
+        try:
+            return await self.db.chats.find_one({"chat_id": chat_id})
+        except PyMongoError as e:
+            logger.error(f"Erro ao obter informações do chat {chat_id}: {e}")
+            return None
+
+    async def get_chat_info_by_title(self, title: str) -> Optional[Dict]:
+        """
+        Obtém informações sobre um chat pelo título (case-insensitive) 
+        a partir da coleção 'monitored_chats'.
+        Retorna o primeiro chat encontrado com o título correspondente.
+        """
+        try:
+            # Busca case-insensitive usando regex
+            # Adiciona ^ e $ para buscar o título exato (ignorando maiúsculas/minúsculas)
+            regex_pattern = re.compile(f"^{re.escape(title)}$", re.IGNORECASE)
+            
+            logger.debug(f"Buscando chat pelo título em 'monitored_chats': '{title}' (regex: {regex_pattern})")
+            # Busca na coleção correta ('monitored_chats')
+            chat_info = await self.db.monitored_chats.find_one({"title": regex_pattern})
+            
+            if chat_info:
+                logger.debug(f"Chat encontrado em 'monitored_chats' pelo título '{title}': ID {chat_info.get('chat_id')}")
+            else:
+                logger.debug(f"Nenhum chat encontrado com o título '{title}'.")
+            return chat_info
+                
+        except PyMongoError as e:
+            logger.error(f"Erro ao obter informações do chat pelo título '{title}': {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Erro inesperado ao buscar chat por título: {e}")
+            return None

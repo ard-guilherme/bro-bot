@@ -97,6 +97,8 @@ async def test_monitor_command_success(setup_mocks):
     
     # Configura o chat para ser um grupo
     mocks["chat"].type = "group"
+    mocks["chat"].title = "Test Group Title"
+    mocks["chat"].username = "testgroupusername"
     
     # Configura o mock para start_monitoring
     mocks["mock_mongodb_client"].start_monitoring.return_value = True
@@ -105,7 +107,11 @@ async def test_monitor_command_success(setup_mocks):
     await monitor_command(mocks["update"], mocks["context"])
     
     # Verifica se o método start_monitoring foi chamado corretamente
-    mocks["mock_mongodb_client"].start_monitoring.assert_called_once_with(mocks["chat"].id)
+    mocks["mock_mongodb_client"].start_monitoring.assert_called_once_with(
+        chat_id=mocks["chat"].id, 
+        title=mocks["chat"].title,
+        username=mocks["chat"].username
+    )
     
     # Verifica se a mensagem de comando foi deletada
     mocks["message"].delete.assert_called_once()
@@ -114,7 +120,7 @@ async def test_monitor_command_success(setup_mocks):
     mocks["context"].bot.send_message.assert_called_once()
     kwargs = mocks["context"].bot.send_message.call_args[1]
     assert kwargs["chat_id"] == mocks["chat"].id
-    assert "Monitoramento de mensagens iniciado" in kwargs["text"]
+    assert "✅ Monitoramento de mensagens iniciado neste grupo." in kwargs["text"]
 
 @pytest.mark.asyncio
 async def test_monitor_command_failure(setup_mocks):
@@ -123,6 +129,8 @@ async def test_monitor_command_failure(setup_mocks):
     
     # Configura o chat para ser um grupo
     mocks["chat"].type = "group"
+    mocks["chat"].title = "Test Group Title Fail"
+    mocks["chat"].username = "testgroupusernamefail"
     
     # Configura o mock para start_monitoring
     mocks["mock_mongodb_client"].start_monitoring.return_value = False
@@ -131,7 +139,11 @@ async def test_monitor_command_failure(setup_mocks):
     await monitor_command(mocks["update"], mocks["context"])
     
     # Verifica se o método start_monitoring foi chamado corretamente
-    mocks["mock_mongodb_client"].start_monitoring.assert_called_once_with(mocks["chat"].id)
+    mocks["mock_mongodb_client"].start_monitoring.assert_called_once_with(
+        chat_id=mocks["chat"].id, 
+        title=mocks["chat"].title,
+        username=mocks["chat"].username
+    )
     
     # Verifica se a mensagem de comando foi deletada
     mocks["message"].delete.assert_called_once()
@@ -139,7 +151,7 @@ async def test_monitor_command_failure(setup_mocks):
     # Verifica se a mensagem temporária foi enviada
     mocks["send_temporary_message"].assert_called_once()
     args = mocks["send_temporary_message"].call_args[0]
-    assert "Erro ao iniciar monitoramento" in args[2]
+    assert "❌ Erro ao iniciar monitoramento. Por favor, tente novamente." in args[2]
 
 @pytest.mark.asyncio
 async def test_unmonitor_command_not_group(setup_mocks):

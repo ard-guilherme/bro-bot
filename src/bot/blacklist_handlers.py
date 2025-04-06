@@ -10,7 +10,8 @@ from telegram.error import BadRequest, TimedOut
 from datetime import datetime
 import asyncio
 from src.utils.mongodb_instance import mongodb_client
-from src.bot.handlers import is_admin, send_temporary_message, delete_message_after
+from src.bot.handlers import is_admin, send_temporary_message
+from html import escape as escape_html
 
 # Configuração de logging
 logger = logging.getLogger(__name__)
@@ -221,18 +222,19 @@ async def blacklist_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return
     
     # Formata a mensagem com as informações da blacklist
-    message = "📋 BLACKLIST\n\n"
+    message = "<b>📋 BLACKLIST</b>\n\n"
     keyboard = []
     
-    for i, item in enumerate(blacklist, start=1):  # Removida a limitação de 10 itens
+    for i, item in enumerate(blacklist, start=1):
         try:
             # Formata data de adição
             added_at = item.get("added_at", datetime.now()).strftime("%d/%m/%Y %H:%M")
             
-            # Formata nome de usuário
+            # Formata nome de usuário (escapado para HTML)
             user_name = item.get("user_name", "Usuário desconhecido")
             username = item.get("username")
             display_name = f"@{username}" if username else user_name
+            escaped_display_name = escape_html(display_name)
             
             # Formata link da mensagem
             item_chat_id = item.get("chat_id")
@@ -241,26 +243,27 @@ async def blacklist_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             # Para grupos, o ID geralmente começa com "-100" e precisa ser formatado para o link
             formatted_chat_id = str(item_chat_id)
             if formatted_chat_id.startswith("-100"):
-                formatted_chat_id = formatted_chat_id[4:]  # Remove os primeiros 4 caracteres ("-100")
+                formatted_chat_id = formatted_chat_id[4:]
             elif formatted_chat_id.startswith("-"):
-                formatted_chat_id = formatted_chat_id[1:]  # Remove apenas o hífen
+                formatted_chat_id = formatted_chat_id[1:]
             
-            # Gera o link da mensagem
             message_link = f"https://t.me/c/{formatted_chat_id}/{message_id}"
             
-            # Formata texto da mensagem (limitado a 50 caracteres)
+            # Formata texto da mensagem (escapado para HTML)
             message_text = item.get("message_text", "")
+            escaped_message_text = ""
             if message_text:
                 if len(message_text) > 50:
                     message_text = message_text[:47] + "..."
-                message_text = f'\n"{message_text}"'
+                escaped_message_text = f'\n"<i>{escape_html(message_text)}</i>"'
             
-            # Formata informações do admin
+            # Formata informações do admin (escapado para HTML)
             added_by_name = item.get("added_by_name", "Admin desconhecido")
+            escaped_added_by_name = escape_html(added_by_name)
             
-            # Adiciona item à mensagem
-            message += f"{i}) {display_name}{message_text}\n"
-            message += f"📅 {added_at} • 👮 {added_by_name} • Ver mensagem: {message_link}\n\n"
+            # Adiciona item à mensagem (usando HTML)
+            message += f"{i}) <b>{escaped_display_name}</b>{escaped_message_text}\n"
+            message += f"📅 {added_at} • 👮 {escaped_added_by_name} • <a href=\"{message_link}\">Ver mensagem</a>\n\n"
             
             # Adiciona botão de remover
             keyboard.append([
@@ -277,11 +280,12 @@ async def blacklist_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     try:
-        # Envia sem formatação Markdown
+        # Envia com HTML
         await context.bot.send_message(
             chat_id=chat_id,
             text=message,
-            disable_web_page_preview=False,  # Permite a pré-visualização dos links
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True,
             reply_markup=reply_markup
         )
     except Exception as e:

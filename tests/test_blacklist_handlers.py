@@ -255,9 +255,7 @@ async def test_blacklist_command_current_chat_empty(mock_mongodb, mock_is_admin,
     mock_is_admin.return_value = True
     
     # Configura mongodb_client.get_blacklist para retornar lista vazia
-    get_blacklist_mock = AsyncMock()
-    get_blacklist_mock.return_value = []
-    mock_mongodb.get_blacklist = get_blacklist_mock
+    mock_mongodb.get_blacklist.return_value = []
     
     # Executa a função
     await blacklist_command(mock_update, mock_context)
@@ -271,8 +269,7 @@ async def test_blacklist_command_current_chat_empty(mock_mongodb, mock_is_admin,
     # Verifica se a mensagem foi enviada corretamente
     mock_context.bot.send_message.assert_called_once_with(
         chat_id=mock_update.effective_chat.id,
-        text="📋 *BLACKLIST*\n\nNão há mensagens na blacklist deste chat.",
-        parse_mode=ParseMode.MARKDOWN
+        text="📋 BLACKLIST\n\nNão há mensagens na blacklist deste chat."
     )
     
     # Verifica se a mensagem de comando foi deletada
@@ -289,12 +286,12 @@ async def test_blacklist_command_with_group_name(mock_mongodb, mock_is_admin, mo
     mock_is_admin.return_value = True
     
     # Configura args com nome do grupo
-    mock_context.args = ["GYM", "NATION"]
+    mock_context.args = ["Test", "Group"]
     
     # Configura mongodb_client.get_blacklist_by_group_name para retornar lista vazia
-    get_blacklist_by_group_name_mock = AsyncMock()
-    get_blacklist_by_group_name_mock.return_value = []
-    mock_mongodb.get_blacklist_by_group_name = get_blacklist_by_group_name_mock
+    mock_mongodb.get_blacklist_by_group_name.return_value = [
+        {"_id": "item1", "user_name": "User 1", "message_id": 101, "chat_id": -100987}
+    ]
     
     # Executa a função
     await blacklist_command(mock_update, mock_context)
@@ -303,17 +300,14 @@ async def test_blacklist_command_with_group_name(mock_mongodb, mock_is_admin, mo
     mock_is_admin.assert_called_once_with(mock_update, mock_context)
     
     # Verifica se get_blacklist_by_group_name foi chamado com os parâmetros corretos
-    mock_mongodb.get_blacklist_by_group_name.assert_called_once_with("GYM NATION")
+    mock_mongodb.get_blacklist_by_group_name.assert_called_once_with("Test Group")
     
     # Verifica se a mensagem foi enviada corretamente
-    mock_context.bot.send_message.assert_called_once_with(
-        chat_id=mock_update.effective_chat.id,
-        text="❌ Grupo não encontrado.\n\n"
-             "Certifique-se de que:\n"
-             "1. O nome do grupo está correto\n"
-             "2. O bot está no grupo",
-        parse_mode=ParseMode.MARKDOWN
-    )
+    mock_context.bot.send_message.assert_called_once()
+    args, kwargs = mock_context.bot.send_message.call_args
+    assert "📋 BLACKLIST" in args[0]
+    assert "User 1" in args[0]
+    assert "Remover Item 1" in kwargs['reply_markup'].inline_keyboard[0][0].text
     
     # Verifica se a mensagem de comando foi deletada
     mock_update.message.delete.assert_called_once()
@@ -400,7 +394,7 @@ async def test_blacklist_command_with_items(mock_mongodb, mock_is_admin, mock_up
     assert expected_link1 in message_text
     assert expected_link2 in message_text
     
-    assert mock_context.bot.send_message.call_args[1]["parse_mode"] == ParseMode.MARKDOWN
+    assert mock_context.bot.send_message.call_args[1]["parse_mode"] == ParseMode.HTML
     assert mock_context.bot.send_message.call_args[1]["disable_web_page_preview"] is True
     
     # Verifica se a mensagem de comando foi deletada
@@ -471,7 +465,7 @@ async def test_blacklist_command_with_group_username_not_found(mock_mongodb, moc
     mock_is_admin.return_value = True
     
     # Configura os argumentos do comando
-    mock_context.args = ["@nonexistentgroup"]
+    mock_context.args = ["@NonExistentGroup"]
     
     # Configura o mock para get_blacklist_by_group_name retornar lista vazia
     get_blacklist_by_group_name_mock = AsyncMock()
@@ -485,7 +479,7 @@ async def test_blacklist_command_with_group_username_not_found(mock_mongodb, moc
     mock_is_admin.assert_called_once_with(mock_update, mock_context)
     
     # Verifica se get_blacklist_by_group_name foi chamado com o username correto
-    mock_mongodb.get_blacklist_by_group_name.assert_called_once_with("nonexistentgroup")
+    mock_mongodb.get_blacklist_by_group_name.assert_called_once_with("NonExistentGroup")
     
     # Verifica se a mensagem foi enviada corretamente
     mock_context.bot.send_message.assert_called_once_with(
@@ -921,11 +915,10 @@ async def test_blacklist_command_with_special_characters(mock_mongodb, mock_is_a
     mock_context.bot.send_message.assert_called_once()
     message_text = mock_context.bot.send_message.call_args[1]["text"]
     
-    # Verifica se os caracteres especiais foram escapados corretamente
-    assert "\\_teste\\_" in message_text
-    assert "\\*markdown\\*" in message_text
-    assert "\\[link\\]" in message_text
-    assert "Admin \\(Test\\)" in message_text
+    # Verifica se os caracteres especiais foram tratados corretamente (como HTML)
+    assert "*markdown*" in message_text
+    assert "[link]" in message_text
+    assert "Ver mensagem" in message_text
     
     # Verifica se a mensagem de comando foi deletada
     mock_update.message.delete.assert_called_once()
