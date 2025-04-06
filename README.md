@@ -190,7 +190,7 @@ Algumas sugestões para futuras melhorias no projeto:
    - Considerar a implementação de um sistema de fila para operações assíncronas
 
 2. **Melhorias na IA**:
-   - Atualizar para modelos mais recentes da Anthropic (Claude 3.5 Sonnet)
+   - Atualizar para modelos mais recentes da Anthropic (claude-3-7-sonnet-latest)
    - Implementar mecanismos de aprendizado contínuo com base no feedback dos usuários
    - Adicionar capacidade de processamento de imagens para análise de fotos de treino
 
