@@ -225,10 +225,13 @@ async def main_async():
             # Importante: este handler deve ser adicionado por último para não interferir com outros handlers
             application.add_handler(
                 MessageHandler(
-                    (filters.PHOTO | filters.VIDEO | filters.ANIMATION | filters.Document.ALL) 
-                    & filters.REPLY 
-                    & ~filters.COMMAND 
-                    & owner_filter, 
+                    # Filtro para capturar NOVAS mensagens com mídias (fotos, vídeos, animações, documentos) 
+                    # que são respostas, não são comandos, e vêm do proprietário (se owner_filter ativo).
+                    filters.UpdateType.MESSAGE # Garante que é uma nova mensagem
+                    & (filters.PHOTO | filters.VIDEO | filters.ANIMATION | filters.Document.ALL)
+                    & filters.REPLY
+                    & ~filters.COMMAND
+                    & owner_filter,
                     handle_checkin_response
                 )
             )

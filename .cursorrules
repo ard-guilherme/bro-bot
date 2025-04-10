@@ -1,0 +1,50 @@
+# Cursor Rules
+
+## Project Patterns
+1. All code must be written in English
+2. Documentation should be comprehensive and up-to-date
+3. Testing is mandatory for all new features
+4. Error handling must be robust and logged
+5. Database operations must be transactional
+
+## User Preferences
+1. Portuguese language for communication
+2. Clear documentation of changes
+3. Regular progress updates
+4. Comprehensive testing approach
+5. Security-first mindset
+
+## Development Workflow
+1. Document changes in Memory Bank
+2. Write tests before implementation
+3. Review code before committing
+4. Update documentation as needed
+5. Maintain clear commit messages
+
+## Code Style
+1. Follow PEP 8 guidelines
+2. Use type hints
+3. Document functions and classes
+4. Keep functions small and focused
+5. Use meaningful variable names
+
+## Testing Approach
+1. Unit tests for all components
+2. Integration tests for flows
+3. End-to-end testing
+4. Performance testing
+5. Error scenario testing
+
+## Documentation Standards
+1. Keep Memory Bank updated
+2. Document all changes
+3. Maintain clear structure
+4. Use diagrams when helpful
+5. Include examples
+
+## Security Practices
+1. Protect sensitive data
+2. Validate all inputs
+3. Handle errors securely
+4. Log security events
+5. Regular security reviews 

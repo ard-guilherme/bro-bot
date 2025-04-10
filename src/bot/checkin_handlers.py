@@ -276,7 +276,7 @@ async def handle_checkin_response(update: Update, context: ContextTypes.DEFAULT_
         static_part = generate_checkin_response_static(display_name, new_total_score) # Usa o score atualizado
         # Extrai a parte inicial da mensagem estática (antes da pontuação)
         static_base = static_part.split("Você tem")[0].strip()
-        final_response = f"{static_base} {score_info}"
+        final_response = f"{static_base}"
         
     # Responde ao usuário com a mensagem final
     await update.message.reply_text(final_response, parse_mode=ParseMode.HTML)
@@ -463,23 +463,54 @@ async def checkinscore_command(update: Update, context: ContextTypes.DEFAULT_TYP
 
 def generate_checkin_response_static(user_name: str, checkin_count: int) -> str:
     """
-    Gera uma mensagem de resposta ESTÁTICA padrão para check-in.
+    Gera uma mensagem de resposta ESTÁTICA padrão para check-in, baseada no score total.
     (Renomeada da antiga generate_checkin_response para clareza).
     NOTA: checkin_count aqui é o SCORE TOTAL atual do usuário.
     """
+    # Lista expandida de respostas alinhadas com a personalidade do Bro Bot
     responses = [
-        f"Check-in registrado para {user_name}! 💪",
-        f"{user_name} está em chamas! Registrado check-in! 🔥",
-        f"Mais um dia, mais um check-in para {user_name}! 🏋️",
-        f"A consistência de {user_name} é admirável! Check-in 👏",
-        f"{user_name} não para! Check-in registrado! 🚀"
+        # Score 1-5: Iniciante
+        f"É isso aí, {user_name}! Começou com tudo! 💪 Bora que o shape vem!",
+        f"Aí sim, {user_name}! Primeiro passo dado. O resto é só continuar! 🔥",
+        f"Boa, {user_name}! Check-in na conta. A dor de hoje é o shape de amanhã! 😉",
+        f"Mandou bem, {user_name}! O sofá chorou hoje! 😂 Check-in feito!",
+        f"Check-in registrado, {user_name}! Continua assim que você chega lá! 🚀",
+
+        # Score 6-15: Consistência Inicial
+        f"Segunda semana firme, {user_name}? Isso é que é foco! Check-in! ✨",
+        f"{user_name} marcando presença de novo! A consistência tá falando alto! 🔑",
+        f"Dale, {user_name}! Não falha uma! Check-in pra conta! 😎",
+        f"Já virou rotina pra {user_name}! Check-in confirmado! 💯",
+        f"É a tropa do shape em ação! Boa, {user_name}! ✅",
+
+        # Score 16-30: Hábito Formado
+        f"Aí eu dou valor, {user_name}! Disciplina tá afiada! Check-in! 👊",
+        f"{user_name} mostrando pra que veio! Mais um check-in pra conta! 💥",
+        f"O shape tá agradecendo, {user_name}! Check-in com sucesso! ✨",
+        f"Que exemplo, {user_name}! Check-in registrado! Continua voando! ✈️",
+        f"Isso não é mais treino, é estilo de vida! Boa, {user_name}! 🏆",
+
+        # Score 31-50: Veterano
+        f"{user_name}, você já é praticamente um patrimônio da GYM NATION! Check-in! 🏛️",
+        f"Mais um pra conta do veterano {user_name}! Inspiração pura! 🔥",
+        f"Alguém chama o bombeiro? Porque {user_name} tá pegando fogo! Check-in! 🚒",
+        f"Esse {user_name} não brinca em serviço! Check-in nível hard! 🦾",
+        f"Com essa dedicação, {user_name}, até o espelho tá aplaudindo! Check-in! 👏",
+
+        # Score 51+: Lenda
+        f"{user_name}, uma lenda não tira férias! Check-in épico! 🥇",
+        f"Mais de 50 check-ins?! {user_name}, você zerou o game! 💪👑",
+        f"O Olimpo te espera, {user_name}! Check-in de respeito! ✨⚡️",
+        f"Se existisse um Hall da Fama do check-in, {user_name} já teria estátua! 🗿",
+        f"Check-in registrado! {user_name}, sua disciplina é lendária! 📜",
     ]
     # Usa uma lógica simples para variar a resposta baseada no score
     # Garante que checkin_count é um inteiro >= 0
     safe_checkin_count = max(0, int(checkin_count))
+    # Escolhe a mensagem baseada no score total usando módulo do tamanho da lista
     chosen_response = responses[safe_checkin_count % len(responses)]
     # Adiciona a contagem de pontos no final
-    return f"{chosen_response} Você tem <b>{checkin_count}</b> pontos no total!"
+    return f"{chosen_response}\nSeu score total é <b>{checkin_count}</b>!"
 
 async def confirmcheckin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
