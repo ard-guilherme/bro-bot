@@ -1141,7 +1141,7 @@ async def say_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         logger.info(f"Usuário {update.effective_user.id} enviou uma mensagem de administração: {admin_message}")
         
         # Formata a mensagem conforme solicitado
-        formatted_message = f"*💪🏻 MENSAGEM DA ADMINISTRAÇÃO 💪🏻*\n\n{admin_message}\n\n"
+        formatted_message = f"{admin_message}"
         
         # Tenta deletar a mensagem original (comando)
         try:

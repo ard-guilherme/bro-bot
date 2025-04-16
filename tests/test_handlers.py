@@ -595,7 +595,7 @@ class TestHandlers(unittest.TestCase):
         # Verifica se a mensagem foi enviada para o chat
         self.context.bot.send_message.assert_called_once_with(
             chat_id=self.update.effective_chat.id,
-            text="*🟢 MENSAGEM DA ADMINISTRAÇÃO 🟢*\n\nEsta é uma mensagem de teste da administração\n\n-------------------------------------",
+            text="",
             parse_mode="Markdown"
         )
     

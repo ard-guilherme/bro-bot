@@ -11,6 +11,7 @@ from src.utils.mongodb_instance import mongodb_client
 from src.bot.handlers import is_admin, send_temporary_message, delete_message_after
 import asyncio
 from datetime import datetime, timedelta
+import random # Importa o módulo random
 
 # Configuração de logging
 logger = logging.getLogger(__name__)
@@ -461,56 +462,134 @@ async def checkinscore_command(update: Update, context: ContextTypes.DEFAULT_TYP
             disable_web_page_preview=True
         )
 
+# --- Novas Listas de Respostas por Faixa ---
+
+responses_1_3 = [
+    "Bem-vindo à jornada, {user_name}! Seu primeiro check-in é o início de algo grande! 💪",
+    "É isso aí, {user_name}! O primeiro passo foi dado. Bora construir esse shape! 🔥",
+    "Check-in na área, {user_name}! Feliz em te ver começando com a gente! ✨",
+    "Boa, {user_name}! Que este seja o primeiro de muitos check-ins! 🚀",
+    "Começou com o pé direito, {user_name}! Check-in registrado! ✅",
+    "Aí sim, {user_name}! Pontapé inicial dado. Estamos juntos nessa! 🤝",
+    "Primeiro check-in? Show, {user_name}! A disciplina começa agora! 💯",
+    "Mandou bem, {user_name}! Check-in confirmado. O caminho é esse! 👉",
+    "Que legal te ver por aqui, {user_name}! Primeiro check-in feito! 🎉",
+    "Registro feito, {user_name}! Continue assim e os resultados virão! 😉",
+]
+
+responses_4_7 = [
+    "Olha só, {user_name} pegando o ritmo! Check-in firme! 🔥",
+    "Já tá virando rotina, {user_name}? Boa! Check-in na conta! 💪",
+    "A consistência tá começando a aparecer, {user_name}! Check-in! ✨",
+    "Mandou bem de novo, {user_name}! Continue assim! ✅",
+    "Check-in registrado! {user_name} mostrando que veio pra ficar! 😎",
+    "É isso, {user_name}! Engrenou na jornada! Check-in! 🚀",
+    "Não tá pra brincadeira! Boa, {user_name}! Check-in feito! 👍",
+    "Mais um pra conta, {user_name}! O shape agradece! 😉",
+    "A cada check-in, mais perto do objetivo! Dale, {user_name}! 🎯",
+    "Foco total, {user_name}! Check-in confirmado! 💯",
+]
+
+responses_8_15 = [
+    "Presença confirmada! {user_name} não falha! Check-in! 🔑",
+    "Isso que é frequência, {user_name}! Check-in pra conta! 😎",
+    "Já é parte da mobília da academia! Boa, {user_name}! Check-in! 😂",
+    "A regularidade é a chave, {user_name}! Check-in! 💯",
+    "Mais um dia, mais um check-in! {user_name} no comando! 💪",
+    "Firme e forte, {user_name}! Check-in com sucesso! ✅",
+    "O sofá tá sentindo sua falta, {user_name}! Check-in! 😉",
+    "Que orgulho ver essa dedicação, {user_name}! Check-in! ✨",
+    "Exemplo de constância! Parabéns, {user_name}! Check-in! 👏",
+    "{user_name} on fire! 🔥 Check-in registrado!",
+]
+
+responses_16_25 = [
+    "Disciplina em pessoa! Aí sim, {user_name}! Check-in! 👊",
+    "Isso já é hábito, {user_name}! Mandou bem demais! Check-in! 💥",
+    "Comprovando a cada dia! Que disciplina, {user_name}! Check-in! ✨",
+    "Você inspira, {user_name}! Check-in nível disciplina máxima! ✈️",
+    "Já virou estilo de vida pra {user_name}! Check-in monstro! 🏆",
+    "O resultado tá vindo! Foco admirável, {user_name}! Check-in! 💪",
+    "Check-in feito! {user_name}, sua dedicação é notável! 💯",
+    "Nada abala {user_name}! Check-in com raça! ✅",
+    "A meta tá cada vez mais perto! Boa, {user_name}! Check-in! 🎯",
+    "Que performance, {user_name}! Check-in registrado! 🔥",
+]
+
+responses_26_40 = [
+    "Veterano {user_name} na área! Respeito máximo! Check-in! 🏛️",
+    "Experiência e constância! {user_name} é referência! Check-in! 🔥",
+    "Tá pegando fogo, {user_name}! Nível veterano ativado! Check-in! 🚒",
+    "Não é pra qualquer um! {user_name} mostrando como se faz! Check-in! 🦾",
+    "Até o espelho aplaude, {user_name}! Dedicação de veterano! Check-in! 👏",
+    "Check-in nível PRO! Boa, {user_name}! Continua inspirando! ✨",
+    "A GYM NATION se orgulha de você, {user_name}! Check-in! 💪",
+    "Essa jornada é longa, e {user_name} tá trilhando como mestre! Check-in! 🏆",
+    "Check-in de quem sabe o caminho! Dale, {user_name}! ✅",
+    "{user_name}, a personificação da disciplina! Check-in! 💯",
+]
+
+responses_41_60 = [
+    "MONSTRO! {user_name} não treina, distribui motivação! Check-in! 💪🔥",
+    "Nível absurdo! {user_name}, você é imparável! Check-in! 💥",
+    "Isso não é suor, é poder escorrendo! Check-in MONSTRO, {user_name}! ✨⚡️",
+    "Se check-in fosse campeonato, {user_name} já era campeão invicto! Check-in! 🏆🥇",
+    "A gravidade te respeita, {user_name}! Check-in nível Saiyajin! 🔥",
+    "Que máquina! {user_name}, sua dedicação é sobrenatural! Check-in! 🦾",
+    "Check-in brutal! {user_name}, você redefine limites! 🚀",
+    "O shape do {user_name} tá trincando até a tela do celular! Check-in!📱💥",
+    "Alguém avisa a NASA que achamos uma nova força da natureza: {user_name}! Check-in! ☄️",
+    "Check-in nível DEUS GREGO! Boa, {user_name}! 🏛️💪",
+]
+
+responses_61_plus = [
+    "LENDA! {user_name}, seu nome será cantado pelos poetas da maromba! Check-in! 📜💪",
+    "Mais de 60?! {user_name}, você não fez check-in, você transcendeu! Check-in LENDÁRIO! ✨👑",
+    "O Olimpo está te convocando, {user_name}! Check-in nível DIVINDADE! ⚡️🏛️",
+    "Hall da Fama é pouco! {user_name} merece uma constelação! Check-in ESTELAR! 🌌🗿",
+    "Check-in registrado! {user_name}, sua disciplina é um MITO! Mufasa curtiu isso! 🦁🔥",
+    "O cara não posta check-in, ele deixa rastro de motivação e testosterona no grupo! LENDA, {user_name}! 💪🚀",
+    "Check-in nível Thor descendo o martelo! {user_name}, você é ÉPICO! 🔨⚡️",
+    "Seus check-ins deveriam vir com aviso de impacto sísmico! Que poder, {user_name}! Check-in! 🌍💥",
+    "{user_name}, você não segue o plano, você É o plano! Check-in MAGISTRAL! 👑✨",
+    "Imparável, Imbatível, Inigualável! {user_name} é LENDA! Check-in! 🥇🏆🔥",
+]
+
 def generate_checkin_response_static(user_name: str, checkin_count: int) -> str:
     """
-    Gera uma mensagem de resposta ESTÁTICA padrão para check-in, baseada no score total.
+    Gera uma mensagem de resposta ESTÁTICA e ALEATÓRIA para check-in, baseada na faixa de score total.
     (Renomeada da antiga generate_checkin_response para clareza).
     NOTA: checkin_count aqui é o SCORE TOTAL atual do usuário.
     """
-    # Lista expandida de respostas alinhadas com a personalidade do Bro Bot
-    responses = [
-        # Score 1-5: Iniciante
-        f"É isso aí, {user_name}! Começou com tudo! 💪 Bora que o shape vem!",
-        f"Aí sim, {user_name}! Primeiro passo dado. O resto é só continuar! 🔥",
-        f"Boa, {user_name}! Check-in na conta. A dor de hoje é o shape de amanhã! 😉",
-        f"Mandou bem, {user_name}! O sofá chorou hoje! 😂 Check-in feito!",
-        f"Check-in registrado, {user_name}! Continua assim que você chega lá! 🚀",
-
-        # Score 6-15: Consistência Inicial
-        f"Segunda semana firme, {user_name}? Isso é que é foco! Check-in! ✨",
-        f"{user_name} marcando presença de novo! A consistência tá falando alto! 🔑",
-        f"Dale, {user_name}! Não falha uma! Check-in pra conta! 😎",
-        f"Já virou rotina pra {user_name}! Check-in confirmado! 💯",
-        f"É a tropa do shape em ação! Boa, {user_name}! ✅",
-
-        # Score 16-30: Hábito Formado
-        f"Aí eu dou valor, {user_name}! Disciplina tá afiada! Check-in! 👊",
-        f"{user_name} mostrando pra que veio! Mais um check-in pra conta! 💥",
-        f"O shape tá agradecendo, {user_name}! Check-in com sucesso! ✨",
-        f"Que exemplo, {user_name}! Check-in registrado! Continua voando! ✈️",
-        f"Isso não é mais treino, é estilo de vida! Boa, {user_name}! 🏆",
-
-        # Score 31-50: Veterano
-        f"{user_name}, você já é praticamente um patrimônio da GYM NATION! Check-in! 🏛️",
-        f"Mais um pra conta do veterano {user_name}! Inspiração pura! 🔥",
-        f"Alguém chama o bombeiro? Porque {user_name} tá pegando fogo! Check-in! 🚒",
-        f"Esse {user_name} não brinca em serviço! Check-in nível hard! 🦾",
-        f"Com essa dedicação, {user_name}, até o espelho tá aplaudindo! Check-in! 👏",
-
-        # Score 51+: Lenda
-        f"{user_name}, uma lenda não tira férias! Check-in épico! 🥇",
-        f"Mais de 50 check-ins?! {user_name}, você zerou o game! 💪👑",
-        f"O Olimpo te espera, {user_name}! Check-in de respeito! ✨⚡️",
-        f"Se existisse um Hall da Fama do check-in, {user_name} já teria estátua! 🗿",
-        f"Check-in registrado! {user_name}, sua disciplina é lendária! 📜",
-    ]
-    # Usa uma lógica simples para variar a resposta baseada no score
     # Garante que checkin_count é um inteiro >= 0
     safe_checkin_count = max(0, int(checkin_count))
-    # Escolhe a mensagem baseada no score total usando módulo do tamanho da lista
-    chosen_response = responses[safe_checkin_count % len(responses)]
+
+    chosen_response = ""
+
+    # Seleciona a lista apropriada e escolhe uma resposta aleatoriamente
+    if 1 <= safe_checkin_count <= 3:
+        chosen_response = random.choice(responses_1_3).format(user_name=user_name)
+    elif 4 <= safe_checkin_count <= 7:
+        chosen_response = random.choice(responses_4_7).format(user_name=user_name)
+    elif 8 <= safe_checkin_count <= 15:
+        chosen_response = random.choice(responses_8_15).format(user_name=user_name)
+    elif 16 <= safe_checkin_count <= 25:
+        chosen_response = random.choice(responses_16_25).format(user_name=user_name)
+    elif 26 <= safe_checkin_count <= 40:
+        chosen_response = random.choice(responses_26_40).format(user_name=user_name)
+    elif 41 <= safe_checkin_count <= 60:
+        chosen_response = random.choice(responses_41_60).format(user_name=user_name)
+    elif safe_checkin_count >= 61:
+        chosen_response = random.choice(responses_61_plus).format(user_name=user_name)
+    else: # Fallback para score 0 (ou caso inesperado)
+        # Usa uma mensagem de boas-vindas padrão
+        chosen_response = f"Bem-vindo à jornada, {user_name}! Check-in registrado! 💪"
+
     # Adiciona a contagem de pontos no final
-    return f"{chosen_response}\nSeu score total é <b>{checkin_count}</b>!"
+    # Remove a antiga lógica de seleção baseada em módulo
+    # chosen_response = responses[safe_checkin_count % len(responses)]
+    # return f"{chosen_response}\nSeu score total é <b>{checkin_count}</b>!"
+    return f"{chosen_response}\nSeu score total é <b>{safe_checkin_count}</b>!"
 
 async def confirmcheckin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """

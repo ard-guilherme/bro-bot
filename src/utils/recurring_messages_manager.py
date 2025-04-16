@@ -278,7 +278,7 @@ class RecurringMessagesManager:
             
             await self.application.bot.send_message(
                 chat_id=chat_id,
-                text=f"🟢 *MENSAGEM DA ADMINISTRAÇÃO* 🟢\n\n{message_text}",
+                text=f"{message_text}",
                 parse_mode="Markdown"
             )
             
