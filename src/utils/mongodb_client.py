@@ -8,6 +8,7 @@ from datetime import datetime
 import motor.motor_asyncio
 from pymongo.errors import PyMongoError
 import re
+from bson import ObjectId
 
 logger = logging.getLogger(__name__)
 
@@ -884,8 +885,6 @@ class MongoDBClient:
             Optional[Dict]: Dados da mensagem recorrente ou None se não encontrada.
         """
         try:
-            from bson.objectid import ObjectId
-            
             result = await self.db.recurring_messages.find_one({"_id": ObjectId(message_id)})
             return result
         except PyMongoError as e:
@@ -940,8 +939,6 @@ class MongoDBClient:
             bool: True se a operação foi bem-sucedida, False caso contrário.
         """
         try:
-            from bson.objectid import ObjectId
-            
             result = await self.db.recurring_messages.update_one(
                 {"_id": ObjectId(message_id)},
                 {"$set": {"last_sent_at": datetime.now()}}
@@ -963,8 +960,6 @@ class MongoDBClient:
             bool: True se a operação foi bem-sucedida, False caso contrário.
         """
         try:
-            from bson.objectid import ObjectId
-            
             result = await self.db.recurring_messages.update_one(
                 {"_id": ObjectId(message_id)},
                 {"$set": {"active": False}}
@@ -1251,3 +1246,80 @@ class MongoDBClient:
         except Exception as e:
             logger.error(f"Erro inesperado ao buscar chat por título: {e}")
             return None
+
+    async def get_chat_id_by_group_name(self, group_name: str) -> Optional[int]:
+        """
+        Obtém o ID numérico de um chat ativo monitorado pelo nome do grupo.
+
+        Args:
+            group_name (str): O nome (título) do grupo.
+
+        Returns:
+            Optional[int]: O chat_id numérico se encontrado e ativo, None caso contrário.
+        """
+        chat_info = await self.get_chat_info_by_title(group_name)
+        if chat_info and chat_info.get("active"):
+            chat_id = chat_info.get("chat_id")
+            if isinstance(chat_id, (int, float)): # Verifica se é numérico
+                 # Tenta converter para int, tratando $numberLong do BSON
+                try:
+                    return int(chat_id)
+                except (ValueError, TypeError):
+                    logger.error(f"Chat ID encontrado para '{group_name}' não é um número válido: {chat_id}")
+                    return None
+            else:
+                 logger.warning(f"Chat ID encontrado para '{group_name}' não é numérico: {chat_id} (Tipo: {type(chat_id)})")
+                 return None # Retorna None se o tipo não for numérico
+        elif chat_info:
+            logger.warning(f"Grupo '{group_name}' encontrado, mas não está ativo.")
+            return None
+        else:
+            logger.info(f"Grupo '{group_name}' não encontrado na coleção monitored_chats.")
+            return None
+
+    async def remove_blacklist_items_by_ids(self, item_ids: List[Union[str, ObjectId]]) -> int:
+        """
+        Remove múltiplos itens da coleção blacklist pelos seus ObjectIds.
+
+        Args:
+            item_ids (List[Union[str, ObjectId]]): Lista de IDs (como string ou ObjectId) dos itens a serem removidos.
+
+        Returns:
+            int: O número de documentos removidos.
+        """
+        if not self.db:
+            logger.error("Conexão com MongoDB não estabelecida")
+            return 0
+        if not item_ids:
+            logger.warning("Tentativa de remover itens da blacklist com lista de IDs vazia.")
+            return 0
+
+        # Converte todos os IDs para ObjectId se forem strings válidas
+        object_ids = []
+        for item_id in item_ids:
+            if isinstance(item_id, ObjectId):
+                object_ids.append(item_id)
+            elif isinstance(item_id, str):
+                try:
+                    object_ids.append(ObjectId(item_id))
+                except Exception as e:
+                    logger.warning(f"ID inválido fornecido para remoção da blacklist: {item_id}. Erro: {e}")
+            else:
+                 logger.warning(f"Tipo de ID inválido fornecido para remoção da blacklist: {type(item_id)}")
+        
+        if not object_ids: # Se nenhum ID válido foi encontrado após a conversão
+            logger.error("Nenhum ObjectId válido fornecido para remoção da blacklist.")
+            return 0
+
+        try:
+            result = await self.db.blacklist.delete_many({
+                "_id": {"$in": object_ids}
+            })
+            logger.info(f"Removidos {result.deleted_count} itens da blacklist.")
+            return result.deleted_count
+        except PyMongoError as e:
+            logger.error(f"Erro ao remover itens da blacklist por IDs: {e}")
+            return 0
+        except Exception as e:
+            logger.error(f"Erro inesperado ao remover itens da blacklist por IDs: {e}")
+            return 0

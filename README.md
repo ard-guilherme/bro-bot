@@ -161,8 +161,9 @@ O bot opera com um sistema de permissões baseado em três níveis:
 - `/checkinscore` - Mostra o ranking de check-ins
 - `/confirmcheckin` - Confirma manualmente o check-in de um usuário
 - `/addblacklist` - Adiciona uma mensagem à blacklist
-- `/blacklist` - Lista mensagens na blacklist
-- `/rmblacklist` - Remove uma mensagem da blacklist
+- `/blacklist [nome_do_grupo]` - Lista mensagens na blacklist (paginado)
+- `/rmblacklist <ID ou link>` - Remove uma mensagem da blacklist
+- `/ban_blacklist <nome_do_grupo>` - Tenta banir todos os usuários da blacklist do grupo especificado e remove as entradas dos usuários banidos com sucesso.
 - `/say` - Faz o bot enviar uma mensagem
 - `/sayrecurrent` - Configura uma mensagem recorrente
 - `/listrecurrent` - Lista mensagens recorrentes configuradas

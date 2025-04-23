@@ -3,7 +3,9 @@
 ## Technologies Used
 - **Programming Language**: Python 3.x
 - **Telegram Integration**: python-telegram-bot
-- **Database**: SQLite
+- **Database**: 
+    - SQLite (Principal, para agendamentos, etc. - a confirmar)
+    - MongoDB (Para Blacklist)
 - **Testing**: pytest
 - **Containerization**: Docker
 - **Version Control**: Git
@@ -20,12 +22,14 @@
 python-telegram-bot
 pytest
 python-dotenv
-SQLite3
+SQLite3 # Se usado para outras partes
+pmongo # Para MongoDB (blacklist)
 ```
+(Nota: Verificar se pymongo está no requirements.txt)
 
 ## Technical Constraints
 1. Telegram API limitations
-2. Database performance considerations
+2. Database performance considerations (SQLite e MongoDB)
 3. Message scheduling accuracy
 4. Error handling requirements
 5. Testing coverage requirements
@@ -38,8 +42,8 @@ SQLite3
 - IDE/Editor of choice
 
 ## Deployment Requirements
-1. Environment variables configuration
-2. Database setup
+1. Environment variables configuration (incluindo MongoDB connection string)
+2. Database setup (SQLite e MongoDB)
 3. Bot token configuration
 4. Docker container setup
 5. Logging configuration
@@ -53,7 +57,7 @@ SQLite3
 
 ## Security Considerations
 1. Bot token security
-2. Database security
+2. Database security (SQLite e MongoDB)
 3. Environment variable protection
 4. Input validation
 5. Error handling security 

@@ -6,11 +6,13 @@ from unittest.mock import AsyncMock, MagicMock, patch, call
 from telegram import Update, User, Chat, Message, ChatMember, ReactionTypeEmoji, BotCommand
 from telegram.constants import ChatType, ParseMode, ReactionType
 from telegram.ext import ContextTypes
+from telegram.error import BadRequest
 from datetime import datetime
 from pymongo.errors import PyMongoError
 from bson.objectid import ObjectId
+from html import escape as escape_html
 
-from src.bot.blacklist_handlers import addblacklist_command, blacklist_command, rmblacklist_command, blacklist_button
+from src.bot.blacklist_handlers import addblacklist_command, blacklist_command, rmblacklist_command, blacklist_button, ban_blacklist_command
 
 @pytest.fixture
 def mock_update():
@@ -254,8 +256,10 @@ async def test_blacklist_command_current_chat_empty(mock_mongodb, mock_is_admin,
     # Configura is_admin para retornar True
     mock_is_admin.return_value = True
     
-    # Configura mongodb_client.get_blacklist para retornar lista vazia
-    mock_mongodb.get_blacklist.return_value = []
+    # Configura mongodb_client.get_blacklist para retornar lista vazia (usando AsyncMock)
+    get_blacklist_mock = AsyncMock()
+    get_blacklist_mock.return_value = []
+    mock_mongodb.get_blacklist = get_blacklist_mock
     
     # Executa a função
     await blacklist_command(mock_update, mock_context)
@@ -288,10 +292,21 @@ async def test_blacklist_command_with_group_name(mock_mongodb, mock_is_admin, mo
     # Configura args com nome do grupo
     mock_context.args = ["Test", "Group"]
     
-    # Configura mongodb_client.get_blacklist_by_group_name para retornar lista vazia
-    mock_mongodb.get_blacklist_by_group_name.return_value = [
-        {"_id": "item1", "user_name": "User 1", "message_id": 101, "chat_id": -100987}
-    ]
+    # Configura mongodb_client.get_blacklist_by_group_name (usando AsyncMock)
+    item_id = ObjectId()
+    mock_item = {
+        "_id": item_id,
+        "user_name": "User 1",
+        "message_id": 101,
+        "chat_id": -100987,
+        "username": "user1",
+        "message_text": "Texto de teste",
+        "added_by_name": "Admin GRP",
+        "added_at": datetime.now()
+    }
+    get_blacklist_mock = AsyncMock()
+    get_blacklist_mock.return_value = [mock_item]
+    mock_mongodb.get_blacklist_by_group_name = get_blacklist_mock
     
     # Executa a função
     await blacklist_command(mock_update, mock_context)
@@ -304,10 +319,16 @@ async def test_blacklist_command_with_group_name(mock_mongodb, mock_is_admin, mo
     
     # Verifica se a mensagem foi enviada corretamente
     mock_context.bot.send_message.assert_called_once()
-    args, kwargs = mock_context.bot.send_message.call_args
-    assert "📋 BLACKLIST" in args[0]
-    assert "User 1" in args[0]
-    assert "Remover Item 1" in kwargs['reply_markup'].inline_keyboard[0][0].text
+    call_args = mock_context.bot.send_message.call_args[1]
+    message_text = call_args["text"]
+    
+    # Verifica cabeçalho, conteúdo e formato
+    assert "<b>📋 BLACKLIST (Parte 1/1)</b>" in message_text
+    assert "@user1" in message_text
+    assert f"<code>{str(item_id)}</code>" in message_text
+    assert "<a href='https://t.me/c/987/101'>Link</a>" in message_text
+    assert call_args["parse_mode"] == ParseMode.HTML
+    assert "reply_markup" not in call_args
     
     # Verifica se a mensagem de comando foi deletada
     mock_update.message.delete.assert_called_once()
@@ -317,16 +338,18 @@ async def test_blacklist_command_with_group_name(mock_mongodb, mock_is_admin, mo
 @patch("src.bot.blacklist_handlers.mongodb_client")
 async def test_blacklist_command_with_items(mock_mongodb, mock_is_admin, mock_update, mock_context):
     """
-    Testa o comando /blacklist quando há mensagens na blacklist.
+    Testa o comando /blacklist quando há mensagens na blacklist (lista curta, 1 página).
     """
     # Configura is_admin para retornar True
     mock_is_admin.return_value = True
     
     # Cria itens da blacklist
     now = datetime.now()
+    item1_id = ObjectId("60f1a5b5a9c1e2b3c4d5e6f7")
+    item2_id = ObjectId("60f1a5b5a9c1e2b3c4d5e6f8")
     blacklist_items = [
         {
-            "_id": ObjectId("60f1a5b5a9c1e2b3c4d5e6f7"),
+            "_id": item1_id,
             "chat_id": mock_update.effective_chat.id,
             "message_id": 1001,
             "user_id": 54321,
@@ -338,7 +361,7 @@ async def test_blacklist_command_with_items(mock_mongodb, mock_is_admin, mock_up
             "added_at": now
         },
         {
-            "_id": ObjectId("60f1a5b5a9c1e2b3c4d5e6f8"),
+            "_id": item2_id,
             "chat_id": mock_update.effective_chat.id,
             "message_id": 1002,
             "user_id": 54322,
@@ -365,37 +388,51 @@ async def test_blacklist_command_with_items(mock_mongodb, mock_is_admin, mock_up
     # Verifica se get_blacklist foi chamado com os parâmetros corretos
     mock_mongodb.get_blacklist.assert_called_once_with(mock_update.effective_chat.id)
     
-    # Verifica se a mensagem foi enviada corretamente
-    # Checamos apenas se o bot.send_message foi chamado uma vez
-    # e o chat_id está correto, já que o conteúdo da mensagem é muito longo e variável
+    # Verifica se a mensagem foi enviada corretamente (apenas uma vez para lista curta)
     mock_context.bot.send_message.assert_called_once()
     
-    # Verifica os elementos essenciais da mensagem
-    message_text = mock_context.bot.send_message.call_args[1]["text"]
+    # Verifica os argumentos da chamada
+    call_args = mock_context.bot.send_message.call_args[1]
+    message_text = call_args["text"]
+    
+    # Verifica o chat_id
+    assert call_args["chat_id"] == mock_update.effective_chat.id
+    
+    # Verifica o cabeçalho da paginação
+    assert "<b>📋 BLACKLIST (Parte 1/1)</b>" in message_text
+    
+    # Verifica elementos essenciais dos itens
+    assert "@targetuser" in message_text
+    assert "Another User" in message_text
+    assert "Admin User" in message_text
+    assert "Mensagem inapropriada 1" in message_text # Verifica se o texto original está lá (antes do escape)
+    assert "Mensagem inapropriada 2" in message_text
+    
+    # Verifica IDs para remoção
+    assert f"<code>{str(item1_id)}</code>" in message_text
+    assert f"<code>{str(item2_id)}</code>" in message_text
     
     # Formata o chat_id para o link de forma consistente com a implementação
     chat_id_str = str(mock_update.effective_chat.id)
     if chat_id_str.startswith("-100"):
-        chat_id_for_link = chat_id_str[4:]  # Remove os primeiros 4 caracteres ("-100")
+        chat_id_for_link = chat_id_str[4:]
     elif chat_id_str.startswith("-"):
-        chat_id_for_link = chat_id_str[1:]  # Remove apenas o hífen
+        chat_id_for_link = chat_id_str[1:]
     else:
         chat_id_for_link = chat_id_str
-    
-    assert mock_context.bot.send_message.call_args[1]["chat_id"] == mock_update.effective_chat.id
-    assert "BLACKLIST" in message_text
-    assert "@targetuser" in message_text
-    assert "Another User" in message_text
-    assert "Admin User" in message_text
-    
+        
     # Verifica se os links foram construídos corretamente
     expected_link1 = f"https://t.me/c/{chat_id_for_link}/1001"
     expected_link2 = f"https://t.me/c/{chat_id_for_link}/1002"
-    assert expected_link1 in message_text
-    assert expected_link2 in message_text
+    assert f"<a href='{expected_link1}'>Link</a>" in message_text
+    assert f"<a href='{expected_link2}'>Link</a>" in message_text
     
-    assert mock_context.bot.send_message.call_args[1]["parse_mode"] == ParseMode.HTML
-    assert mock_context.bot.send_message.call_args[1]["disable_web_page_preview"] is True
+    # Verifica modo de parse e preview
+    assert call_args["parse_mode"] == ParseMode.HTML
+    assert call_args["disable_web_page_preview"] is True
+    
+    # Verifica que reply_markup (botões) não foi enviado
+    assert "reply_markup" not in call_args
     
     # Verifica se a mensagem de comando foi deletada
     mock_update.message.delete.assert_called_once()
@@ -414,10 +451,11 @@ async def test_blacklist_command_with_group_username(mock_mongodb, mock_is_admin
     mock_context.args = ["@testgroup"]
     
     # Configura o mock para get_blacklist_by_group_name
+    item_id = ObjectId("60f1a5b5a9c1e2b3c4d5e6f7")
     mock_blacklist = [
         {
-            "_id": "60f1a5b5a9c1e2b3c4d5e6f7",
-            "chat_id": 12345,
+            "_id": item_id,
+            "chat_id": -10012345,
             "message_id": 67890,
             "user_id": 54321,
             "user_name": "Test User",
@@ -425,7 +463,7 @@ async def test_blacklist_command_with_group_username(mock_mongodb, mock_is_admin
             "message_text": "Mensagem inapropriada",
             "added_by": 98765,
             "added_by_name": "Admin User",
-            "created_at": datetime.now()
+            "added_at": datetime.now()
         }
     ]
     get_blacklist_by_group_name_mock = AsyncMock()
@@ -444,12 +482,12 @@ async def test_blacklist_command_with_group_username(mock_mongodb, mock_is_admin
     # Verifica se a mensagem foi enviada corretamente
     mock_context.bot.send_message.assert_called_once()
     message_text = mock_context.bot.send_message.call_args[1]["text"]
-    assert "BLACKLIST" in message_text
+    assert "BLACKLIST (Parte 1/1)" in message_text
     assert "@testuser" in message_text
     assert "Admin User" in message_text
     assert "Mensagem inapropriada" in message_text
-    assert "Ver mensagem" in message_text
-    assert "https://t.me/c/12345/67890" in message_text
+    assert f"<code>{str(item_id)}</code>" in message_text
+    assert "<a href='https://t.me/c/12345/67890'>Link</a>" in message_text
     
     # Verifica se a mensagem de comando foi deletada
     mock_update.message.delete.assert_called_once()
@@ -467,7 +505,7 @@ async def test_blacklist_command_with_group_username_not_found(mock_mongodb, moc
     # Configura os argumentos do comando
     mock_context.args = ["@NonExistentGroup"]
     
-    # Configura o mock para get_blacklist_by_group_name retornar lista vazia
+    # Configura o mock para get_blacklist_by_group_name retornar lista vazia (usando AsyncMock)
     get_blacklist_by_group_name_mock = AsyncMock()
     get_blacklist_by_group_name_mock.return_value = []
     mock_mongodb.get_blacklist_by_group_name = get_blacklist_by_group_name_mock
@@ -481,14 +519,13 @@ async def test_blacklist_command_with_group_username_not_found(mock_mongodb, moc
     # Verifica se get_blacklist_by_group_name foi chamado com o username correto
     mock_mongodb.get_blacklist_by_group_name.assert_called_once_with("NonExistentGroup")
     
-    # Verifica se a mensagem foi enviada corretamente
+    # Verifica se a mensagem foi enviada corretamente (sem verificar parse_mode)
     mock_context.bot.send_message.assert_called_once_with(
         chat_id=mock_update.effective_chat.id,
         text="❌ Grupo não encontrado.\n\n"
              "Certifique-se de que:\n"
              "1. O nome do grupo está correto\n"
-             "2. O bot está no grupo",
-        parse_mode=ParseMode.MARKDOWN
+             "2. O bot está no grupo"
     )
     
     # Verifica se a mensagem de comando foi deletada
@@ -882,22 +919,23 @@ async def test_blacklist_command_with_special_characters(mock_mongodb, mock_is_a
     
     # Cria itens da blacklist com caracteres especiais
     now = datetime.now()
+    item_id = ObjectId("60f1a5b5a9c1e2b3c4d5e6f7")
     blacklist_items = [
         {
-            "_id": ObjectId("60f1a5b5a9c1e2b3c4d5e6f7"),
+            "_id": item_id,
             "chat_id": mock_update.effective_chat.id,
             "message_id": 1001,
             "user_id": 54321,
             "user_name": "Test User",
             "username": "testuser",
-            "message_text": "_teste_ *markdown* [link]",
+            "message_text": "_teste_ *markdown* [link] <script>alert('xss')</script>",
             "added_by": 12345,
             "added_by_name": "Admin (Test)",
             "added_at": now
         }
     ]
     
-    # Configura mongodb_client.get_blacklist para retornar a lista de itens
+    # Configura mongodb_client.get_blacklist para retornar a lista de itens (usando AsyncMock)
     get_blacklist_mock = AsyncMock()
     get_blacklist_mock.return_value = blacklist_items
     mock_mongodb.get_blacklist = get_blacklist_mock
@@ -915,10 +953,13 @@ async def test_blacklist_command_with_special_characters(mock_mongodb, mock_is_a
     mock_context.bot.send_message.assert_called_once()
     message_text = mock_context.bot.send_message.call_args[1]["text"]
     
-    # Verifica se os caracteres especiais foram tratados corretamente (como HTML)
+    # Verifica se os caracteres especiais foram tratados corretamente (escapados por escape_html)
+    assert "_teste_" in message_text
     assert "*markdown*" in message_text
     assert "[link]" in message_text
-    assert "Ver mensagem" in message_text
+    assert "&lt;script&gt;alert(&#x27;xss&#x27;)&lt;/script&gt;" in message_text
+    assert f"<code>{str(item_id)}</code>" in message_text
+    assert "<a href='https://t.me/c/" in message_text
     
     # Verifica se a mensagem de comando foi deletada
     mock_update.message.delete.assert_called_once()
@@ -926,34 +967,50 @@ async def test_blacklist_command_with_special_characters(mock_mongodb, mock_is_a
 @pytest.mark.asyncio
 @patch("src.bot.blacklist_handlers.is_admin")
 @patch("src.bot.blacklist_handlers.mongodb_client")
-async def test_blacklist_command_with_long_message(mock_mongodb, mock_is_admin, mock_update, mock_context):
+@patch("asyncio.sleep", return_value=None)
+async def test_blacklist_command_with_long_message(mock_sleep, mock_mongodb, mock_is_admin, mock_update, mock_context):
     """
-    Testa o comando /blacklist quando há mensagens longas que precisam ser truncadas.
+    Testa o comando /blacklist quando a lista é longa e requer paginação.
+    Verifica também o truncamento do texto da mensagem individual.
     """
     # Configura is_admin para retornar True
     mock_is_admin.return_value = True
     
-    # Cria uma mensagem longa com mais de 50 caracteres
-    long_message = "Esta é uma mensagem muito longa que precisa ser truncada pois tem mais de 50 caracteres"
+    # Define um texto base longo para cada item
+    base_text = "X" * 300
     
-    # Cria itens da blacklist
+    # Calcula quantos itens cabem aproximadamente por página (estimativa grosseira)
+    # Formato por item: ~ "N. <b>Usuário:</b> ... <b>ID:</b> <code>...</code>\n"
+    # Header: ~ 50 chars
+    # Item formatado: ~ 200 chars (sem o texto) + len(escaped_text) + len(id)
+    # Texto truncado: 103 chars (100 + ...)
+    # ID: 24 chars
+    # Total por item: ~ 200 + 103 + 24 = ~330 chars
+    # Limite: 4000. Header: 50. Disponível: 3950
+    # Itens por página: ~ 3950 / 330 = ~11-12 itens
+    
+    # Cria uma lista longa (ex: 25 itens, deve gerar 3 páginas)
+    num_items = 25
+    blacklist_items = []
     now = datetime.now()
-    blacklist_items = [
-        {
-            "_id": ObjectId("60f1a5b5a9c1e2b3c4d5e6f7"),
+    expected_ids = []
+    for i in range(num_items):
+        item_id = ObjectId()
+        expected_ids.append(str(item_id))
+        blacklist_items.append({
+            "_id": item_id,
             "chat_id": mock_update.effective_chat.id,
-            "message_id": 1001,
-            "user_id": 54321,
-            "user_name": "Test User",
-            "username": "testuser",
-            "message_text": long_message,
+            "message_id": 1000 + i,
+            "user_id": 50000 + i,
+            "user_name": f"Test User {i}",
+            "username": f"testuser{i}",
+            "message_text": f"{base_text} Item {i}",
             "added_by": 12345,
             "added_by_name": "Admin User",
             "added_at": now
-        }
-    ]
+        })
     
-    # Configura mongodb_client.get_blacklist para retornar a lista de itens
+    # Configura mongodb_client.get_blacklist para retornar a lista longa
     get_blacklist_mock = AsyncMock()
     get_blacklist_mock.return_value = blacklist_items
     mock_mongodb.get_blacklist = get_blacklist_mock
@@ -961,13 +1018,260 @@ async def test_blacklist_command_with_long_message(mock_mongodb, mock_is_admin, 
     # Executa a função
     await blacklist_command(mock_update, mock_context)
     
-    # Verifica se a mensagem foi enviada corretamente
-    mock_context.bot.send_message.assert_called_once()
-    message_text = mock_context.bot.send_message.call_args[1]["text"]
+    # Verifica se get_blacklist foi chamado
+    mock_mongodb.get_blacklist.assert_called_once_with(mock_update.effective_chat.id)
     
-    # Verifica se a mensagem foi truncada corretamente
-    truncated_message = "Esta é uma mensagem muito longa que precisa ser..."
-    assert truncated_message in message_text
+    # Verifica quantas chamadas a send_message foram feitas (deve ser > 1)
+    assert mock_context.bot.send_message.call_count > 1 
     
+    # Calcula o número esperado de páginas (arredondando para cima)
+    # Este cálculo é apenas uma verificação, a lógica real está no código
+    # A lógica de paginação no código é baseada em comprimento, não em contagem de itens
+    # Por isso, verificamos > 1 e os cabeçalhos
+    calls = mock_context.bot.send_message.call_args_list
+    total_parts = len(calls)
+    
+    # Verifica o cabeçalho e conteúdo da primeira parte
+    first_call_args = calls[0][1]
+    first_message_text = first_call_args["text"]
+    assert f"<b>📋 BLACKLIST (Parte 1/{total_parts})</b>" in first_message_text
+    assert f"<b>Usuário:</b> @testuser0" in first_message_text
+    assert f"<i>{escape_html(base_text[:100] + '...')}</i>" in first_message_text
+    assert f"<code>{expected_ids[0]}</code>" in first_message_text
+    assert first_call_args["parse_mode"] == ParseMode.HTML
+    assert first_call_args["disable_web_page_preview"] is True
+    assert "reply_markup" not in first_call_args
+
+    # Verifica o cabeçalho e conteúdo da última parte
+    last_call_args = calls[-1][1]
+    last_message_text = last_call_args["text"]
+    assert f"<b>📋 BLACKLIST (Parte {total_parts}/{total_parts})</b>" in last_message_text
+    assert f"<b>Usuário:</b> @testuser{num_items - 1}" in last_message_text
+    assert f"<i>{escape_html(base_text[:100] + '...')}</i>" in last_message_text
+    assert f"<code>{expected_ids[-1]}</code>" in last_message_text
+    assert last_call_args["parse_mode"] == ParseMode.HTML
+    assert last_call_args["disable_web_page_preview"] is True
+    assert "reply_markup" not in last_call_args
+
+    # Verifica se asyncio.sleep foi chamado entre as mensagens
+    assert mock_sleep.call_count == total_parts - 1
+    mock_sleep.assert_called_with(0.5)
+
     # Verifica se a mensagem de comando foi deletada
     mock_update.message.delete.assert_called_once() 
+
+@pytest.mark.asyncio
+@patch("src.bot.blacklist_handlers.is_admin")
+@patch("src.bot.blacklist_handlers.send_temporary_message")
+async def test_ban_blacklist_command_not_admin(mock_send_temp, mock_is_admin, mock_update, mock_context):
+    """Testa /ban_blacklist quando o usuário não é admin."""
+    mock_is_admin.return_value = False
+    mock_context.args = ["Some Group"]
+
+    await ban_blacklist_command(mock_update, mock_context)
+
+    mock_is_admin.assert_called_once_with(mock_update, mock_context)
+    mock_send_temp.assert_called_once_with(mock_update, mock_context, "Apenas administradores do bot podem usar este comando.")
+    mock_context.bot.send_message.assert_not_called() # Nenhuma mensagem de processamento
+
+@pytest.mark.asyncio
+@patch("src.bot.blacklist_handlers.is_admin")
+@patch("src.bot.blacklist_handlers.send_temporary_message")
+async def test_ban_blacklist_command_no_args(mock_send_temp, mock_is_admin, mock_update, mock_context):
+    """Testa /ban_blacklist sem argumentos."""
+    mock_is_admin.return_value = True
+    mock_context.args = [] # Sem argumentos
+
+    await ban_blacklist_command(mock_update, mock_context)
+
+    mock_is_admin.assert_called_once_with(mock_update, mock_context)
+    mock_send_temp.assert_called_once_with(mock_update, mock_context, "Uso: /ban_blacklist <nome_do_grupo>")
+    mock_context.bot.send_message.assert_not_called()
+
+@pytest.mark.asyncio
+@patch("src.bot.blacklist_handlers.is_admin")
+@patch("src.bot.blacklist_handlers.mongodb_client")
+async def test_ban_blacklist_command_group_not_found(mock_mongodb, mock_is_admin, mock_update, mock_context):
+    """Testa /ban_blacklist quando o grupo não é encontrado."""
+    mock_is_admin.return_value = True
+    mock_context.args = ["NonExistent Group"]
+    
+    # Mock get_chat_id_by_group_name retornando None
+    mock_mongodb.get_chat_id_by_group_name = AsyncMock(return_value=None)
+    
+    # Mock para a mensagem de processamento
+    mock_processing_message = AsyncMock(spec=Message)
+    mock_context.bot.send_message.return_value = mock_processing_message
+
+    await ban_blacklist_command(mock_update, mock_context)
+
+    mock_is_admin.assert_called_once_with(mock_update, mock_context)
+    mock_mongodb.get_chat_id_by_group_name.assert_called_once_with("NonExistent Group")
+    mock_context.bot.send_message.assert_called_once() # Chamada para msg inicial
+    mock_processing_message.edit_text.assert_called_once_with("❌ Grupo 'NonExistent Group' não encontrado ou não monitorado ativamente.")
+    mock_context.bot.ban_chat_member.assert_not_called()
+    mock_mongodb.get_blacklist.assert_not_called()
+
+@pytest.mark.asyncio
+@patch("src.bot.blacklist_handlers.is_admin")
+@patch("src.bot.blacklist_handlers.mongodb_client")
+async def test_ban_blacklist_command_empty_blacklist(mock_mongodb, mock_is_admin, mock_update, mock_context):
+    """Testa /ban_blacklist quando a blacklist do grupo está vazia."""
+    group_name = "Empty Blacklist Group"
+    target_chat_id = -100111222
+    mock_is_admin.return_value = True
+    mock_context.args = [group_name]
+    
+    # Mock get_chat_id_by_group_name retornando ID
+    mock_mongodb.get_chat_id_by_group_name = AsyncMock(return_value=target_chat_id)
+    # Mock get_blacklist retornando lista vazia
+    mock_mongodb.get_blacklist = AsyncMock(return_value=[])
+
+    # Mock para a mensagem de processamento
+    mock_processing_message = AsyncMock(spec=Message)
+    mock_context.bot.send_message.return_value = mock_processing_message
+
+    await ban_blacklist_command(mock_update, mock_context)
+
+    mock_is_admin.assert_called_once_with(mock_update, mock_context)
+    mock_mongodb.get_chat_id_by_group_name.assert_called_once_with(group_name)
+    mock_mongodb.get_blacklist.assert_called_once_with(target_chat_id)
+    mock_context.bot.send_message.assert_called_once() # Chamada para msg inicial
+    mock_processing_message.edit_text.assert_called_once_with(f"✅ A blacklist para o grupo '{group_name}' (ID: {target_chat_id}) já está vazia.")
+    mock_context.bot.ban_chat_member.assert_not_called()
+    mock_mongodb.remove_blacklist_items_by_ids.assert_not_called()
+
+@pytest.mark.asyncio
+@patch("src.bot.blacklist_handlers.is_admin")
+@patch("src.bot.blacklist_handlers.mongodb_client")
+@patch("asyncio.sleep", return_value=None) # Mock asyncio.sleep
+async def test_ban_blacklist_command_success_all(mock_sleep, mock_mongodb, mock_is_admin, mock_update, mock_context):
+    """Testa /ban_blacklist com sucesso para todos os usuários."""
+    group_name = "Clean Group"
+    target_chat_id = -100333444
+    mock_is_admin.return_value = True
+    mock_context.args = [group_name]
+
+    # Mock get_chat_id_by_group_name
+    mock_mongodb.get_chat_id_by_group_name = AsyncMock(return_value=target_chat_id)
+
+    # Mock blacklist com 2 usuários (3 entradas, 1 duplicado)
+    user1_id = 50001
+    user2_id = 50002
+    item1_id = ObjectId()
+    item2_id = ObjectId()
+    item3_id = ObjectId()
+    blacklist_entries = [
+        {"_id": item1_id, "chat_id": target_chat_id, "user_id": user1_id, "user_name": "User One"},
+        {"_id": item2_id, "chat_id": target_chat_id, "user_id": user2_id, "user_name": "User Two"},
+        {"_id": item3_id, "chat_id": target_chat_id, "user_id": user1_id, "user_name": "User One Again"} # Entrada duplicada user1
+    ]
+    mock_mongodb.get_blacklist = AsyncMock(return_value=blacklist_entries)
+
+    # Mock ban_chat_member retornando True
+    mock_context.bot.ban_chat_member = AsyncMock(return_value=True)
+
+    # Mock remove_blacklist_items_by_ids
+    mock_mongodb.remove_blacklist_items_by_ids = AsyncMock(return_value=3) # 3 itens removidos
+
+    # Mock para a mensagem de processamento
+    mock_processing_message = AsyncMock(spec=Message)
+    mock_context.bot.send_message.return_value = mock_processing_message
+
+    await ban_blacklist_command(mock_update, mock_context)
+
+    # Verificações
+    mock_mongodb.get_chat_id_by_group_name.assert_called_once_with(group_name)
+    mock_mongodb.get_blacklist.assert_called_once_with(target_chat_id)
+    assert mock_context.bot.ban_chat_member.call_count == 2 # Chamado para 2 usuários únicos
+    mock_context.bot.ban_chat_member.assert_has_calls([
+        call(chat_id=target_chat_id, user_id=user1_id),
+        call(chat_id=target_chat_id, user_id=user2_id)
+    ], any_order=True)
+    assert mock_sleep.call_count == 2 # Um sleep após cada ban
+    mock_mongodb.remove_blacklist_items_by_ids.assert_called_once_with([item1_id, item3_id, item2_id]) # Todos os IDs devem ser removidos
+    
+    # Verifica a mensagem final
+    mock_processing_message.edit_text.assert_called_with(
+        f"<b>📊 Relatório de Banimento da Blacklist</b>\n\n"
+        f"<b>Grupo:</b> {group_name} (ID: <code>{target_chat_id}</code>)\n"
+        f"<b>Usuários únicos na blacklist:</b> 2\n"
+        f"<b>Banidos com sucesso:</b> ✅ 2\n"
+        f"<b>Falhas ao banir:</b> ❌ 0\n"
+        f"<b>Itens removidos da blacklist:</b> 🗑️ 3\n"
+        f"<i>(Apenas itens de usuários banidos com sucesso foram removidos)</i>\n",
+        parse_mode=ParseMode.HTML
+    )
+
+@pytest.mark.asyncio
+@patch("src.bot.blacklist_handlers.is_admin")
+@patch("src.bot.blacklist_handlers.mongodb_client")
+@patch("asyncio.sleep", return_value=None) # Mock asyncio.sleep
+async def test_ban_blacklist_command_partial_failure(mock_sleep, mock_mongodb, mock_is_admin, mock_update, mock_context):
+    """Testa /ban_blacklist com falha para alguns usuários."""
+    group_name = "Mixed Group"
+    target_chat_id = -100555666
+    mock_is_admin.return_value = True
+    mock_context.args = [group_name]
+
+    # Mock get_chat_id_by_group_name
+    mock_mongodb.get_chat_id_by_group_name = AsyncMock(return_value=target_chat_id)
+
+    # Mock blacklist com 3 usuários
+    user1_id = 50001 # Sucesso
+    user2_id = 50002 # Falha (BadRequest)
+    user3_id = 50003 # Sucesso
+    item1_id = ObjectId()
+    item2_id = ObjectId()
+    item3_id = ObjectId()
+    blacklist_entries = [
+        {"_id": item1_id, "chat_id": target_chat_id, "user_id": user1_id, "user_name": "User One"},
+        {"_id": item2_id, "chat_id": target_chat_id, "user_id": user2_id, "user_name": "User Two"},
+        {"_id": item3_id, "chat_id": target_chat_id, "user_id": user3_id, "user_name": "User Three"}
+    ]
+    mock_mongodb.get_blacklist = AsyncMock(return_value=blacklist_entries)
+
+    # Mock ban_chat_member com falha para user2
+    async def ban_side_effect(chat_id, user_id):
+        if user_id == user2_id:
+            raise BadRequest("User not found")
+        return True
+    mock_context.bot.ban_chat_member = AsyncMock(side_effect=ban_side_effect)
+
+    # Mock remove_blacklist_items_by_ids (só remove itens de user1 e user3)
+    mock_mongodb.remove_blacklist_items_by_ids = AsyncMock(return_value=2) 
+
+    # Mock para a mensagem de processamento
+    mock_processing_message = AsyncMock(spec=Message)
+    mock_context.bot.send_message.return_value = mock_processing_message
+
+    await ban_blacklist_command(mock_update, mock_context)
+
+    # Verificações
+    mock_mongodb.get_chat_id_by_group_name.assert_called_once_with(group_name)
+    mock_mongodb.get_blacklist.assert_called_once_with(target_chat_id)
+    assert mock_context.bot.ban_chat_member.call_count == 3 # Chamado para 3 usuários únicos
+    assert mock_sleep.call_count == 3
+    # Verifica se tentou remover apenas itens de user1 e user3
+    mock_mongodb.remove_blacklist_items_by_ids.assert_called_once_with([item1_id, item3_id])
+    
+    # Verifica a mensagem final (precisa checar o conteúdo)
+    assert mock_processing_message.edit_text.call_count == 2 # Corrigido: Verifica 2 chamadas
+    
+    # Pega os argumentos da *última* chamada a edit_text
+    final_call_args = mock_processing_message.edit_text.call_args_list[-1][0]
+    final_kwargs = mock_processing_message.edit_text.call_args_list[-1][1]
+    final_text = final_call_args[0]
+    
+    # Verifica o conteúdo da última mensagem
+    assert f"<b>Grupo:</b> {escape_html(group_name)}" in final_text # Usa escape_html para comparar
+    assert "<b>Usuários únicos na blacklist:</b> 3" in final_text
+    assert "<b>Banidos com sucesso:</b> ✅ 2" in final_text
+    assert "<b>Falhas ao banir:</b> ❌ 1" in final_text
+    assert "<b>Itens removidos da blacklist:</b> 🗑️ 2" in final_text
+    assert "<b>Detalhes das Falhas:</b>" in final_text
+    # Verifica a falha específica (escape_html aplicado ao nome do usuário)
+    expected_failed_user_display = escape_html(f"User Two ({user2_id})")
+    expected_failed_error = escape_html("User not found")
+    assert f"- {expected_failed_user_display}: {expected_failed_error}" in final_text
+    assert final_kwargs.get("parse_mode") == ParseMode.HTML # Verifica parse_mode na última chamada 

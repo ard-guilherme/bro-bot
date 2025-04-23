@@ -62,7 +62,8 @@ from src.bot.blacklist_handlers import (
     addblacklist_command,
     blacklist_command,
     rmblacklist_command,
-    blacklist_button
+    blacklist_button,
+    ban_blacklist_command
 )
 
 # Configuração de logging
@@ -93,7 +94,8 @@ async def setup_commands(application: Application) -> None:
         BotCommand("confirmcheckin", "Confirma manualmente o check-in de um usuário"),
         BotCommand("addblacklist", "Adiciona uma mensagem à blacklist"),
         BotCommand("blacklist", "Lista mensagens na blacklist do chat"),
-        BotCommand("rmblacklist", "Remove uma mensagem da blacklist pelo ID")
+        BotCommand("rmblacklist", "Remove uma mensagem da blacklist pelo ID"),
+        BotCommand("ban_blacklist", "Bane usuários da blacklist e limpa entradas")
     ]
     
     # Comandos apenas para o proprietário
@@ -193,6 +195,7 @@ async def main_async():
             application.add_handler(CommandHandler("addblacklist", addblacklist_command, filters=owner_filter))
             application.add_handler(CommandHandler("blacklist", blacklist_command, filters=owner_filter))
             application.add_handler(CommandHandler("rmblacklist", rmblacklist_command, filters=owner_filter))
+            application.add_handler(CommandHandler("ban_blacklist", ban_blacklist_command, filters=owner_filter))
             
             # Adiciona handler para os botões da blacklist
             application.add_handler(CallbackQueryHandler(

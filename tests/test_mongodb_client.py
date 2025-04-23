@@ -438,7 +438,7 @@ async def test_get_checkin_scoreboard(mongodb_setup, mocker):
     pipeline_arg = mock_user_checkins.aggregate.call_args[0][0]
     assert isinstance(pipeline_arg, list)
     assert len(pipeline_arg) > 0
-    assert pipeline_arg[0] == {"$match": {"chat_id": 123}} # Verifica o estágio $match
+    assert pipeline_arg[0] == {"$match": {"chat_id": 123, "points_value": {"$exists": True}}}
 
     mock_aggregate_cursor.to_list.assert_called_once_with(length=None)
     assert result == scoreboard_data
@@ -1170,6 +1170,192 @@ async def test_remove_from_blacklist_by_link_error(mongodb_setup):
     
     # Verifica se o resultado está correto
     assert result is False
+
+@pytest.mark.asyncio
+@patch("src.utils.mongodb_client.MongoDBClient.get_chat_info_by_title")
+async def test_get_chat_id_by_group_name_success(mock_get_chat_info, mongodb_setup):
+    """Testa get_chat_id_by_group_name com sucesso."""
+    mongodb_client = mongodb_setup["client_wrapper"]
+    group_name = "Test Group"
+    expected_chat_id = -100123456
+
+    # Mock para get_chat_info_by_title retornar um chat ativo
+    mock_get_chat_info.return_value = {
+        "chat_id": expected_chat_id,
+        "title": group_name,
+        "active": True
+    }
+
+    result = await mongodb_client.get_chat_id_by_group_name(group_name)
+
+    assert result == expected_chat_id
+    mock_get_chat_info.assert_called_once_with(group_name)
+
+@pytest.mark.asyncio
+@patch("src.utils.mongodb_client.MongoDBClient.get_chat_info_by_title")
+async def test_get_chat_id_by_group_name_not_active(mock_get_chat_info, mongodb_setup):
+    """Testa get_chat_id_by_group_name quando o chat não está ativo."""
+    mongodb_client = mongodb_setup["client_wrapper"]
+    group_name = "Inactive Group"
+
+    # Mock para get_chat_info_by_title retornar um chat inativo
+    mock_get_chat_info.return_value = {
+        "chat_id": -100999888,
+        "title": group_name,
+        "active": False
+    }
+
+    result = await mongodb_client.get_chat_id_by_group_name(group_name)
+
+    assert result is None
+    mock_get_chat_info.assert_called_once_with(group_name)
+
+@pytest.mark.asyncio
+@patch("src.utils.mongodb_client.MongoDBClient.get_chat_info_by_title")
+async def test_get_chat_id_by_group_name_not_found(mock_get_chat_info, mongodb_setup):
+    """Testa get_chat_id_by_group_name quando o grupo não é encontrado."""
+    mongodb_client = mongodb_setup["client_wrapper"]
+    group_name = "NonExistent Group"
+
+    # Mock para get_chat_info_by_title retornar None
+    mock_get_chat_info.return_value = None
+
+    result = await mongodb_client.get_chat_id_by_group_name(group_name)
+
+    assert result is None
+    mock_get_chat_info.assert_called_once_with(group_name)
+    
+@pytest.mark.asyncio
+@patch("src.utils.mongodb_client.MongoDBClient.get_chat_info_by_title")
+async def test_get_chat_id_by_group_name_invalid_id(mock_get_chat_info, mongodb_setup):
+    """Testa get_chat_id_by_group_name quando o chat_id não é numérico."""
+    mongodb_client = mongodb_setup["client_wrapper"]
+    group_name = "Group With Invalid ID"
+
+    # Mock para get_chat_info_by_title retornar um chat ativo com ID inválido
+    mock_get_chat_info.return_value = {
+        "chat_id": "invalid_id_string",
+        "title": group_name,
+        "active": True
+    }
+
+    result = await mongodb_client.get_chat_id_by_group_name(group_name)
+
+    assert result is None
+    mock_get_chat_info.assert_called_once_with(group_name)
+
+@pytest.mark.asyncio
+async def test_remove_blacklist_items_by_ids_success(mongodb_setup):
+    """Testa remove_blacklist_items_by_ids com sucesso."""
+    mongodb_client = mongodb_setup["client_wrapper"]
+    mock_db = mongodb_setup["mock_db"]
+    mock_blacklist = mongodb_setup["mock_blacklist"]
+    mongodb_client.db = mock_db
+
+    ids_to_remove_str = ["60f1a5b5a9c1e2b3c4d5e6f7", "60f1a5b5a9c1e2b3c4d5e6f8"]
+    ids_to_remove_obj = [ObjectId(id_str) for id_str in ids_to_remove_str]
+    
+    # Mock para delete_many retornar sucesso
+    mock_result = MagicMock()
+    mock_result.deleted_count = 2
+    mock_blacklist.delete_many.return_value = mock_result
+
+    result_count = await mongodb_client.remove_blacklist_items_by_ids(ids_to_remove_str)
+
+    assert result_count == 2
+    mock_blacklist.delete_many.assert_called_once_with({"_id": {"$in": ids_to_remove_obj}})
+
+@pytest.mark.asyncio
+async def test_remove_blacklist_items_by_ids_mixed_types(mongodb_setup):
+    """Testa remove_blacklist_items_by_ids com IDs ObjectId e string."""
+    mongodb_client = mongodb_setup["client_wrapper"]
+    mock_db = mongodb_setup["mock_db"]
+    mock_blacklist = mongodb_setup["mock_blacklist"]
+    mongodb_client.db = mock_db
+
+    obj_id = ObjectId()
+    str_id = "60f1a5b5a9c1e2b3c4d5e6f8"
+    ids_to_remove_mixed = [obj_id, str_id]
+    expected_obj_ids = [obj_id, ObjectId(str_id)]
+    
+    # Mock para delete_many retornar sucesso
+    mock_result = MagicMock()
+    mock_result.deleted_count = 2
+    mock_blacklist.delete_many.return_value = mock_result
+
+    result_count = await mongodb_client.remove_blacklist_items_by_ids(ids_to_remove_mixed)
+
+    assert result_count == 2
+    mock_blacklist.delete_many.assert_called_once_with({"_id": {"$in": expected_obj_ids}})
+
+@pytest.mark.asyncio
+async def test_remove_blacklist_items_by_ids_invalid_id(mongodb_setup):
+    """Testa remove_blacklist_items_by_ids com um ID inválido na lista."""
+    mongodb_client = mongodb_setup["client_wrapper"]
+    mock_db = mongodb_setup["mock_db"]
+    mock_blacklist = mongodb_setup["mock_blacklist"]
+    mongodb_client.db = mock_db
+
+    valid_id_str = "60f1a5b5a9c1e2b3c4d5e6f7"
+    invalid_id_str = "invalid-string"
+    ids_to_remove = [valid_id_str, invalid_id_str]
+    expected_obj_ids = [ObjectId(valid_id_str)] # Apenas o ID válido deve ser passado
+
+    # Mock para delete_many retornar sucesso (para o ID válido)
+    mock_result = MagicMock()
+    mock_result.deleted_count = 1
+    mock_blacklist.delete_many.return_value = mock_result
+
+    result_count = await mongodb_client.remove_blacklist_items_by_ids(ids_to_remove)
+
+    assert result_count == 1
+    mock_blacklist.delete_many.assert_called_once_with({"_id": {"$in": expected_obj_ids}})
+
+@pytest.mark.asyncio
+async def test_remove_blacklist_items_by_ids_all_invalid(mongodb_setup):
+    """Testa remove_blacklist_items_by_ids quando todos os IDs são inválidos."""
+    mongodb_client = mongodb_setup["client_wrapper"]
+    mock_db = mongodb_setup["mock_db"]
+    mock_blacklist = mongodb_setup["mock_blacklist"]
+    mongodb_client.db = mock_db
+
+    ids_to_remove = ["invalid1", 12345, None] # Tipos e strings inválidas
+
+    result_count = await mongodb_client.remove_blacklist_items_by_ids(ids_to_remove)
+
+    assert result_count == 0
+    mock_blacklist.delete_many.assert_not_called() # Não deve tentar deletar
+
+@pytest.mark.asyncio
+async def test_remove_blacklist_items_by_ids_empty_list(mongodb_setup):
+    """Testa remove_blacklist_items_by_ids com lista vazia."""
+    mongodb_client = mongodb_setup["client_wrapper"]
+    mock_db = mongodb_setup["mock_db"]
+    mock_blacklist = mongodb_setup["mock_blacklist"]
+    mongodb_client.db = mock_db
+
+    result_count = await mongodb_client.remove_blacklist_items_by_ids([])
+
+    assert result_count == 0
+    mock_blacklist.delete_many.assert_not_called()
+
+@pytest.mark.asyncio
+async def test_remove_blacklist_items_by_ids_mongo_error(mongodb_setup):
+    """Testa remove_blacklist_items_by_ids com erro no MongoDB."""
+    mongodb_client = mongodb_setup["client_wrapper"]
+    mock_db = mongodb_setup["mock_db"]
+    mock_blacklist = mongodb_setup["mock_blacklist"]
+    mongodb_client.db = mock_db
+
+    ids_to_remove_obj = [ObjectId()]
+
+    # Mock para delete_many lançar erro
+    mock_blacklist.delete_many.side_effect = PyMongoError("Delete failed")
+
+    result_count = await mongodb_client.remove_blacklist_items_by_ids(ids_to_remove_obj)
+
+    assert result_count == 0
+    mock_blacklist.delete_many.assert_called_once_with({"_id": {"$in": ids_to_remove_obj}})
 
 # Função auxiliar para monkeypatching
 def monkeypatch_setup(client_wrapper):

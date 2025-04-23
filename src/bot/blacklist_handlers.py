@@ -2,7 +2,7 @@
 Handlers para os comandos de blacklist.
 """
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Set
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReactionTypeEmoji
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode, ReactionEmoji
@@ -12,6 +12,7 @@ import asyncio
 from src.utils.mongodb_instance import mongodb_client
 from src.bot.handlers import is_admin, send_temporary_message
 from html import escape as escape_html
+from bson import ObjectId
 
 # Configuração de logging
 logger = logging.getLogger(__name__)
@@ -221,10 +222,11 @@ async def blacklist_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         )
         return
     
-    # Formata a mensagem com as informações da blacklist
-    message = "<b>📋 BLACKLIST</b>\n\n"
-    keyboard = []
+    # Constante para o limite de caracteres por mensagem
+    MESSAGE_LENGTH_LIMIT = 4000
     
+    # Formata as entradas da blacklist
+    items_text = []
     for i, item in enumerate(blacklist, start=1):
         try:
             # Formata data de adição
@@ -249,52 +251,102 @@ async def blacklist_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             
             message_link = f"https://t.me/c/{formatted_chat_id}/{message_id}"
             
-            # Formata texto da mensagem (escapado para HTML)
+            # Formata texto da mensagem (limitado e escapado)
             message_text = item.get("message_text", "")
-            escaped_message_text = ""
-            if message_text:
-                if len(message_text) > 50:
-                    message_text = message_text[:47] + "..."
-                escaped_message_text = f'\n"<i>{escape_html(message_text)}</i>"'
+            escaped_message_text = escape_html(message_text[:100] + ("..." if len(message_text) > 100 else "")) # Limita o texto para evitar estouro fácil
             
-            # Formata informações do admin (escapado para HTML)
-            added_by_name = item.get("added_by_name", "Admin desconhecido")
-            escaped_added_by_name = escape_html(added_by_name)
+            # Formata nome do admin (escapado)
+            admin_name = item.get("added_by_name", "Admin desconhecido")
+            escaped_admin_name = escape_html(admin_name)
             
-            # Adiciona item à mensagem (usando HTML)
-            message += f"{i}) <b>{escaped_display_name}</b>{escaped_message_text}\n"
-            message += f"📅 {added_at} • 👮 {escaped_added_by_name} • <a href=\"{message_link}\">Ver mensagem</a>\n\n"
+            # ID único do item para referência (usado no rmblacklist)
+            item_id_str = str(item.get('_id'))
+
+            item_str = (
+                f"{i}. <b>Usuário:</b> {escaped_display_name} \n"
+                f"   <b>Adicionado por:</b> {escaped_admin_name} em {added_at}\n"
+                f"   <b>Mensagem:</b> <a href='{message_link}'>Link</a> \n"
+                f"   <b>Texto:</b> <i>{escaped_message_text}</i>\n"
+                f"   <b>ID para remover:</b> <code>{item_id_str}</code>\n" # Adicionado ID
+            )
+            items_text.append(item_str)
             
-            # Adiciona botão de remover
-            keyboard.append([
-                InlineKeyboardButton(
-                    text=f"🗑️ Remover item {i}",
-                    callback_data=f"rmblacklist_{str(item['_id'])}"
-                )
-            ])
         except Exception as e:
-            logger.error(f"Erro ao formatar item {i} da blacklist: {e}")
-            continue
+            logger.error(f"Erro ao formatar item {item.get('_id', 'N/A')} da blacklist: {e}")
+            items_text.append(f"{i}. Erro ao formatar este item.\n")
+
+    # Lógica de Paginação
+    current_message = ""
+    message_parts = []
     
-    # Cria o teclado inline
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    try:
-        # Envia com HTML
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=message,
-            parse_mode=ParseMode.HTML,
-            disable_web_page_preview=True,
-            reply_markup=reply_markup
-        )
-    except Exception as e:
-        logger.error(f"Erro ao enviar mensagem: {e}")
-        # Mensagem de erro genérica em caso de falha
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text="❌ Erro ao exibir a blacklist. Por favor, tente novamente."
-        )
+    for item_str in items_text:
+        # Verifica se adicionar o próximo item + uma linha extra excede o limite
+        if len(current_message) + len(item_str) + 1 > MESSAGE_LENGTH_LIMIT:
+            # Se exceder e a mensagem atual não estiver vazia, adiciona a parte atual
+            if current_message:
+                message_parts.append(current_message)
+            # Começa uma nova parte com o item atual
+            current_message = item_str + "\n"
+        else:
+            # Adiciona o item à parte atual
+            current_message += item_str + "\n"
+            
+    # Adiciona a última parte se não estiver vazia
+    if current_message:
+        message_parts.append(current_message)
+
+    total_parts = len(message_parts)
+
+    # Envia as partes paginadas
+    for i, part in enumerate(message_parts, start=1):
+        header = f"<b>📋 BLACKLIST (Parte {i}/{total_parts})</b>\n\n"
+        final_message = header + part
+        
+        try:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=final_message,
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True # Desabilitar preview para economizar espaço e evitar clutter
+            )
+            # Pequeno delay para evitar flood limits do Telegram
+            if total_parts > 1 and i < total_parts:
+                await asyncio.sleep(0.5) 
+        except BadRequest as e:
+            logger.error(f"Erro (BadRequest) ao enviar parte {i}/{total_parts} da blacklist: {e}")
+            # Tenta enviar uma mensagem de erro genérica se a parte específica falhar
+            if i == 1:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="❌ Ocorreu um erro ao formatar ou enviar a lista da blacklist. Verifique os logs."
+                )
+            break # Interrompe o envio das demais partes se uma falhar
+        except TimedOut:
+            logger.warning(f"Timeout ao enviar parte {i}/{total_parts} da blacklist. Tentando novamente...")
+            await asyncio.sleep(1) # Espera um pouco mais
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=final_message,
+                    parse_mode=ParseMode.HTML,
+                    disable_web_page_preview=True
+                )
+            except Exception as e_retry:
+                logger.error(f"Erro (Retry) ao enviar parte {i}/{total_parts} da blacklist: {e_retry}")
+                if i == 1:
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text="❌ Ocorreu um erro de timeout ao enviar a lista da blacklist. Tente novamente mais tarde."
+                    )
+                break # Interrompe
+        except Exception as e:
+            logger.error(f"Erro inesperado ao enviar parte {i}/{total_parts} da blacklist: {e}")
+            if i == 1:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="❌ Ocorreu um erro inesperado ao processar a blacklist. Verifique os logs."
+                )
+            break # Interrompe
 
 async def rmblacklist_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
@@ -359,3 +411,155 @@ async def rmblacklist_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.delete()
     except Exception as e:
         logger.error(f"Erro ao deletar mensagem de comando: {e}") 
+
+async def ban_blacklist_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Handler para o comando /ban_blacklist <group_name>.
+    Bane todos os usuários únicos da blacklist de um grupo específico e limpa
+    as entradas correspondentes (apenas dos usuários banidos com sucesso).
+    """
+    # 1. Verificações Iniciais
+    if not await is_admin(update, context):
+        await send_temporary_message(update, context, "Apenas administradores do bot podem usar este comando.")
+        return
+
+    if not context.args or len(context.args) == 0:
+        await send_temporary_message(update, context, "Uso: /ban_blacklist <nome_do_grupo>")
+        return
+
+    group_name = " ".join(context.args)
+    admin_user = update.effective_user
+    original_chat_id = update.effective_chat.id # Onde o admin executou o comando
+
+    # Deleta o comando original imediatamente
+    try:
+        await update.message.delete()
+    except Exception as e:
+        logger.error(f"Erro ao deletar mensagem de comando /ban_blacklist: {e}")
+        
+    # Envia mensagem inicial
+    processing_message = await context.bot.send_message(
+        chat_id=original_chat_id,
+        text=f"⚙️ Iniciando processo de banimento da blacklist para o grupo '{group_name}'..."
+    )
+
+    # 2. Obter Chat ID do Grupo Alvo
+    logger.info(f"Buscando chat_id para o grupo: {group_name}")
+    target_chat_id = await mongodb_client.get_chat_id_by_group_name(group_name)
+
+    if target_chat_id is None:
+        await processing_message.edit_text(f"❌ Grupo '{group_name}' não encontrado ou não monitorado ativamente.")
+        return
+    
+    logger.info(f"Chat ID encontrado para '{group_name}': {target_chat_id}")
+
+    # 3. Obter Blacklist e Usuários Únicos
+    logger.info(f"Buscando blacklist para o chat: {target_chat_id}")
+    blacklist_entries = await mongodb_client.get_blacklist(target_chat_id)
+
+    if not blacklist_entries:
+        await processing_message.edit_text(f"✅ A blacklist para o grupo '{group_name}' (ID: {target_chat_id}) já está vazia.")
+        return
+
+    unique_user_ids: Set[int] = set()
+    user_details_map: Dict[int, Dict[str, Any]] = {}
+    for entry in blacklist_entries:
+        user_id = entry.get("user_id")
+        if user_id:
+            unique_user_ids.add(user_id)
+            if user_id not in user_details_map: # Armazena detalhes do primeiro encontrado
+                user_details_map[user_id] = {
+                    "name": entry.get("user_name", "Nome Desconhecido"),
+                    "username": entry.get("username")
+                }
+    
+    total_unique_users = len(unique_user_ids)
+    logger.info(f"Encontrados {total_unique_users} usuários únicos na blacklist do chat {target_chat_id}.")
+    await processing_message.edit_text(
+        f"⚙️ Encontrados {total_unique_users} usuários únicos. Iniciando tentativas de banimento em '{group_name}' (ID: {target_chat_id})..."
+    )
+
+    # 4. Processo de Banimento e Coleta de Resultados
+    banned_count = 0
+    failed_count = 0
+    failed_user_details = []
+    ids_to_delete: List[ObjectId] = [] # Armazena ObjectIds das entradas a remover
+
+    for i, user_id in enumerate(unique_user_ids):
+        user_display = user_details_map.get(user_id, {}).get("username") or user_details_map.get(user_id, {}).get("name")
+        user_display = f"@{user_display}" if user_details_map.get(user_id, {}).get("username") else user_display
+        user_display = escape_html(f"{user_display} ({user_id})")
+        
+        logger.debug(f"Tentando banir usuário {user_id} do chat {target_chat_id} ({i+1}/{total_unique_users})")
+        try:
+            # Tenta banir o usuário
+            # O parâmetro revoke_messages=True não existe mais na v20+, ban apenas bane.
+            success = await context.bot.ban_chat_member(chat_id=target_chat_id, user_id=user_id)
+            
+            if success:
+                banned_count += 1
+                logger.info(f"Usuário {user_id} banido com sucesso do chat {target_chat_id}.")
+                # Coleta os _id de todas as entradas deste usuário neste chat
+                for entry in blacklist_entries:
+                    if entry.get("user_id") == user_id and entry.get("chat_id") == target_chat_id:
+                        entry_obj_id = entry.get("_id")
+                        if isinstance(entry_obj_id, ObjectId):
+                             ids_to_delete.append(entry_obj_id)
+            else:
+                 # Este caso não deve ocorrer com ban_chat_member se não lançar exceção, mas incluído por segurança
+                 raise Exception("ban_chat_member retornou False")
+                 
+        except BadRequest as e:
+            failed_count += 1
+            error_message = str(e)
+            logger.warning(f"Falha ao banir usuário {user_id} do chat {target_chat_id}: {error_message}")
+            failed_user_details.append({"id": user_id, "name": user_display, "error": escape_html(error_message)})
+        except Exception as e: # Captura outras exceções inesperadas
+            failed_count += 1
+            error_message = str(e)
+            logger.error(f"Erro inesperado ao tentar banir usuário {user_id} do chat {target_chat_id}: {error_message}")
+            failed_user_details.append({"id": user_id, "name": user_display, "error": escape_html(f"Erro inesperado: {error_message}")})
+        
+        # Adiciona delay
+        await asyncio.sleep(0.6) 
+
+    # 5. Limpeza da Blacklist
+    deleted_count = 0
+    if ids_to_delete:
+        logger.info(f"Tentando remover {len(ids_to_delete)} itens da blacklist para usuários banidos com sucesso...")
+        deleted_count = await mongodb_client.remove_blacklist_items_by_ids(ids_to_delete)
+        logger.info(f"{deleted_count} itens da blacklist efetivamente removidos.")
+    else:
+        logger.info("Nenhum usuário banido com sucesso, nenhum item removido da blacklist.")
+
+    # 6. Relatório Final
+    report_message = f"<b>📊 Relatório de Banimento da Blacklist</b>\n\n"
+    report_message += f"<b>Grupo:</b> {escape_html(group_name)} (ID: <code>{target_chat_id}</code>)\n"
+    report_message += f"<b>Usuários únicos na blacklist:</b> {total_unique_users}\n"
+    report_message += f"<b>Banidos com sucesso:</b> ✅ {banned_count}\n"
+    report_message += f"<b>Falhas ao banir:</b> ❌ {failed_count}\n"
+    report_message += f"<b>Itens removidos da blacklist:</b> 🗑️ {deleted_count}\n"
+    report_message += f"<i>(Apenas itens de usuários banidos com sucesso foram removidos)</i>\n"
+
+    if failed_user_details:
+        report_message += "\n<b>Detalhes das Falhas:</b>\n"
+        # Limita a exibição de detalhes para não estourar a mensagem
+        max_details = 15
+        for i, detail in enumerate(failed_user_details[:max_details]):
+            report_message += f"- {detail['name']}: {detail['error']}\n"
+        if len(failed_user_details) > max_details:
+            report_message += f"<i>... e mais {len(failed_user_details) - max_details} falhas. Verifique os logs para detalhes completos.</i>\n"
+            
+    # Edita a mensagem de processamento com o resultado final
+    try:
+        await processing_message.edit_text(report_message, parse_mode=ParseMode.HTML)
+    except BadRequest as e:
+        logger.error(f"Erro ao enviar relatório final de ban_blacklist: {e}")
+        # Tenta enviar como nova mensagem se a edição falhar
+        await context.bot.send_message(
+            chat_id=original_chat_id, 
+            text="Ocorreu um erro ao editar a mensagem de status. Relatório:\n" + report_message,
+            parse_mode=ParseMode.HTML
+        )
+    except Exception as e:
+         logger.error(f"Erro inesperado ao editar mensagem de relatório: {e}") 
