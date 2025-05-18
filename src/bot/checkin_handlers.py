@@ -490,7 +490,7 @@ responses_4_7 = [
     "Foco total, {user_name}! Check-in confirmado! 💯",
 ]
 
-responses_8_15 = [
+responses_8_12 = [
     "Presença confirmada! {user_name} não falha! Check-in! 🔑",
     "Isso que é frequência, {user_name}! Check-in pra conta! 😎",
     "Já é parte da mobília da academia! Boa, {user_name}! Check-in! 😂",
@@ -503,7 +503,7 @@ responses_8_15 = [
     "{user_name} on fire! 🔥 Check-in registrado!",
 ]
 
-responses_16_25 = [
+responses_13_18 = [
     "Disciplina em pessoa! Aí sim, {user_name}! Check-in! 👊",
     "Isso já é hábito, {user_name}! Mandou bem demais! Check-in! 💥",
     "Comprovando a cada dia! Que disciplina, {user_name}! Check-in! ✨",
@@ -516,7 +516,7 @@ responses_16_25 = [
     "Que performance, {user_name}! Check-in registrado! 🔥",
 ]
 
-responses_26_40 = [
+responses_19_25 = [
     "Veterano {user_name} na área! Respeito máximo! Check-in! 🏛️",
     "Experiência e constância! {user_name} é referência! Check-in! 🔥",
     "Tá pegando fogo, {user_name}! Nível veterano ativado! Check-in! 🚒",
@@ -529,7 +529,7 @@ responses_26_40 = [
     "{user_name}, a personificação da disciplina! Check-in! 💯",
 ]
 
-responses_41_60 = [
+responses_26_30 = [
     "MONSTRO! {user_name} não treina, distribui motivação! Check-in! 💪🔥",
     "Nível absurdo! {user_name}, você é imparável! Check-in! 💥",
     "Isso não é suor, é poder escorrendo! Check-in MONSTRO, {user_name}! ✨⚡️",
@@ -542,9 +542,9 @@ responses_41_60 = [
     "Check-in nível DEUS GREGO! Boa, {user_name}! 🏛️💪",
 ]
 
-responses_61_plus = [
+responses_31_plus = [
     "LENDA! {user_name}, seu nome será cantado pelos poetas da maromba! Check-in! 📜💪",
-    "Mais de 60?! {user_name}, você não fez check-in, você transcendeu! Check-in LENDÁRIO! ✨👑",
+    "Chegou no topo! {user_name}, você não fez check-in, você transcendeu! Check-in LENDÁRIO! ✨👑",
     "O Olimpo está te convocando, {user_name}! Check-in nível DIVINDADE! ⚡️🏛️",
     "Hall da Fama é pouco! {user_name} merece uma constelação! Check-in ESTELAR! 🌌🗿",
     "Check-in registrado! {user_name}, sua disciplina é um MITO! Mufasa curtiu isso! 🦁🔥",
@@ -571,16 +571,16 @@ def generate_checkin_response_static(user_name: str, checkin_count: int) -> str:
         chosen_response = random.choice(responses_1_3).format(user_name=user_name)
     elif 4 <= safe_checkin_count <= 7:
         chosen_response = random.choice(responses_4_7).format(user_name=user_name)
-    elif 8 <= safe_checkin_count <= 15:
-        chosen_response = random.choice(responses_8_15).format(user_name=user_name)
-    elif 16 <= safe_checkin_count <= 25:
-        chosen_response = random.choice(responses_16_25).format(user_name=user_name)
-    elif 26 <= safe_checkin_count <= 40:
-        chosen_response = random.choice(responses_26_40).format(user_name=user_name)
-    elif 41 <= safe_checkin_count <= 60:
-        chosen_response = random.choice(responses_41_60).format(user_name=user_name)
-    elif safe_checkin_count >= 61:
-        chosen_response = random.choice(responses_61_plus).format(user_name=user_name)
+    elif 8 <= safe_checkin_count <= 12:
+        chosen_response = random.choice(responses_8_12).format(user_name=user_name)
+    elif 13 <= safe_checkin_count <= 18:
+        chosen_response = random.choice(responses_13_18).format(user_name=user_name)
+    elif 19 <= safe_checkin_count <= 25:
+        chosen_response = random.choice(responses_19_25).format(user_name=user_name)
+    elif 26 <= safe_checkin_count <= 30:
+        chosen_response = random.choice(responses_26_30).format(user_name=user_name)
+    elif safe_checkin_count >= 31:
+        chosen_response = random.choice(responses_31_plus).format(user_name=user_name)
     else: # Fallback para score 0 (ou caso inesperado)
         # Usa uma mensagem de boas-vindas padrão
         chosen_response = f"Bem-vindo à jornada, {user_name}! Check-in registrado! 💪"
@@ -655,7 +655,7 @@ async def confirmcheckin_command(update: Update, context: ContextTypes.DEFAULT_T
             display_name = f"@{target_username}" if target_username else target_user_name
             await context.bot.send_message(
                 chat_id=chat_id,
-                text=f"✅ Check-in manual confirmado para {display_name}! Novo score total: <b>{new_total_score}</b> pontos.",
+                text=f"✅ Check-in confirmado para {display_name}! Score atual: <b>{new_total_score}</b> pontos.",
                 parse_mode=ParseMode.HTML
             )
         else:
