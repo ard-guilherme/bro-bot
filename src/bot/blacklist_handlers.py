@@ -114,6 +114,44 @@ async def addblacklist_command(update: Update, context: ContextTypes.DEFAULT_TYP
         except Exception as e:
             logger.error(f"Erro ao adicionar reação à mensagem: {e}")
         
+        # Tenta enviar mensagem privada para o usuário
+        try:
+            # Prepara o link direto para a mensagem
+            chat_id_str = str(chat_id)
+            formatted_chat_id = chat_id_str
+            # Formata o chat_id para o link
+            if chat_id_str.startswith("-100"):
+                formatted_chat_id = chat_id_str[4:]
+            elif chat_id_str.startswith("-"):
+                formatted_chat_id = chat_id_str[1:]
+            
+            message_link = f"https://t.me/c/{formatted_chat_id}/{message_id}"
+            
+            # Obtém o nome do grupo/chat
+            try:
+                chat = await context.bot.get_chat(chat_id)
+                chat_title = chat.title
+            except Exception as e:
+                logger.error(f"Erro ao obter informações do chat {chat_id}: {e}")
+                chat_title = "do grupo"
+            
+            # Envia mensagem privada
+            notification_text = (
+                f"Sua postagem [link]({message_link}) foi adicionada à blacklist por não estar alinhada com o propósito {chat_title}.\n\n"
+                f"Mesmo que ela tenha sido excluída, entre em contato com um ADM para justificar e removê-lo da lista. "
+                f"Caso contrário, eventualmente poderá sofrer banimento."
+            )
+            
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=notification_text,
+                parse_mode=ParseMode.MARKDOWN,
+                disable_web_page_preview=True
+            )
+            logger.info(f"Mensagem de notificação enviada ao usuário {user_id} sobre adição à blacklist")
+        except Exception as e:
+            logger.warning(f"Não foi possível enviar mensagem privada ao usuário {user_id}: {e}")
+        
         # Não enviamos mais mensagem de confirmação
         
         try:
