@@ -91,9 +91,26 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
     
     # Remove a menção ao bot do texto
-    original_question = re.sub(f"@{bot_username}", "", text, flags=re.IGNORECASE).strip()
+    mention_text = re.sub(f"@{bot_username}", "", text, flags=re.IGNORECASE).strip()
+    
+    # Verifica se a mensagem é uma resposta a outra mensagem
+    original_message_text = None
+    original_question = mention_text
+    
+    if message.reply_to_message and message.reply_to_message.text:
+        # Captura o texto da mensagem original
+        original_message_text = message.reply_to_message.text
+        
+        # Se a mensagem de menção está vazia ou só contém a menção ao bot
+        if not mention_text:
+            # Usa apenas a mensagem original como pergunta
+            original_question = original_message_text
+        else:
+            # Combina as duas mensagens para criar o contexto completo
+            original_question = f"Contexto: \"{original_message_text}\"\n\nPergunta: \"{mention_text}\""
+    
     if not original_question:
-        await message.reply_text("Por favor, faça uma pergunta junto com a menção.")
+        await message.reply_text("Por favor, faça uma pergunta junto com a menção ou mencione-me em resposta a uma mensagem com conteúdo.")
         return
     
     try:
@@ -120,6 +137,10 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             text="🤔 Analisando sua pergunta... Aguarde um momento.",
             reply_to_message_id=message.message_id
         )
+        
+        # Se estamos respondendo a uma mensagem original, inclua informação no log
+        if original_message_text:
+            logger.info(f"Gerando resposta para pergunta com contexto. Mensagem original: '{original_message_text}', Menção: '{mention_text}'")
         
         # Classifica a pergunta
         category = classify_question(original_question)

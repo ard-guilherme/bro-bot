@@ -1,6 +1,7 @@
 # Active Context
 
 ## Current Focus
+- Implementação da análise de contexto em menções ao bot (quando o usuário menciona o bot em resposta a outra mensagem).
 - Separação das respostas para o primeiro check-in (1 ponto) das respostas para usuários com 2-3 pontos.
 - Readequação das faixas de pontuação do sistema de check-in para uma escala máxima de 34 pontos.
 - Escrever e executar testes automatizados para o novo comando `/ban_blacklist`.
@@ -8,6 +9,7 @@
 - Planejar próximos passos (corrigir testes existentes ou nova feature).
 
 ## Recent Changes
+- **Nova Feature:** Implementada a análise de contexto para menções ao bot. Quando um usuário menciona o bot em resposta a outra mensagem, o bot agora considera tanto o texto da mensagem à qual o usuário está respondendo quanto o texto da própria menção para gerar uma resposta mais precisa e contextualizada.
 - **Nova Melhoria:** Separadas as respostas do primeiro check-in (1 ponto) das respostas para usuários com 2-3 pontos, evitando mensagens inadequadas que faziam referência ao "primeiro check-in" para usuários que já tinham feito mais de um check-in.
 - **Nova Melhoria:** Readequação das faixas de pontuação para as mensagens de check-in ajustando para escala máxima de 34 pontos (considerando reset periódico a cada 30 dias). Foram ajustadas as faixas de pontuação de: [1-3, 4-7, 8-15, 16-25, 26-40, 41-60, 61+] para [1, 2-3, 4-7, 8-12, 13-18, 19-25, 26-30, 31+].
 - **Nova Feature:** Adicionado o comando `/ban_blacklist <group_name>` para administradores. Este comando bane usuários da blacklist de um grupo específico e remove as entradas correspondentes (apenas dos usuários banidos com sucesso). (Implementado em `src/utils/mongodb_client.py` e `src/bot/blacklist_handlers.py`, registrado em `src/main.py`).
@@ -17,11 +19,12 @@
 - **Melhoria Mensagens Check-in:** Substituída a lista de respostas estáticas para check-in padrão.
 
 ## Next Steps
-1.  **Testar Comando `/ban_blacklist`:** Escrever e executar testes unitários/integração para `ban_blacklist_command` e as novas funções do MongoDB client.
-2.  **Testar Paginação:** Realizar testes unitários e manuais para a funcionalidade de paginação da blacklist (se ainda não foram feitos ou passaram).
-3.  **Decidir Prioridade:** Avaliar se o próximo foco será corrigir os testes automatizados restantes em `tests/test_checkin_handlers.py` ou iniciar outra tarefa/feature.
-4.  Se focar nos testes, investigar as falhas de `IndexError` e `KeyError`.
-5.  Se focar em nova tarefa, definir e planejar.
+1.  **Testar Análise de Contexto:** Testar a funcionalidade de análise de contexto em menções ao bot para garantir que funcione corretamente em diferentes cenários.
+2.  **Testar Comando `/ban_blacklist`:** Escrever e executar testes unitários/integração para `ban_blacklist_command` e as novas funções do MongoDB client.
+3.  **Testar Paginação:** Realizar testes unitários e manuais para a funcionalidade de paginação da blacklist (se ainda não foram feitos ou passaram).
+4.  **Decidir Prioridade:** Avaliar se o próximo foco será corrigir os testes automatizados restantes em `tests/test_checkin_handlers.py` ou iniciar outra tarefa/feature.
+5.  Se focar nos testes, investigar as falhas de `IndexError` e `KeyError`.
+6.  Se focar em nova tarefa, definir e planejar.
 
 ## Active Decisions
 1. Using SQLite for main database (TBC)
@@ -32,6 +35,7 @@
 6. Implementing comprehensive logging
 
 ## Current Considerations
+- Cobertura de testes para a funcionalidade de análise de contexto em menções ao bot.
 - Cobertura de testes para a separação das respostas de primeiro check-in.
 - Cobertura de testes para as novas faixas de pontuação de check-in.
 - Cobertura de testes para `/ban_blacklist`.
@@ -43,16 +47,17 @@
 - Deployment configuration (including MongoDB)
 
 ## Pending Tasks
-1. Testes para separação das respostas de primeiro check-in.
-2. Testes para as novas faixas de pontuação de check-in.
-3. Testes para `/ban_blacklist`.
-4. Testes para paginação do `/blacklist`.
-5. Correção dos testes em `test_checkin_handlers.py`.
-6. Database setup/confirmation (SQLite for core?)
-7. Testing framework configuration.
-8. Core functionality implementation (outros comandos).
-9. Documentation completion
-10. Deployment pipeline setup
+1. Testes para análise de contexto em menções ao bot.
+2. Testes para separação das respostas de primeiro check-in.
+3. Testes para as novas faixas de pontuação de check-in.
+4. Testes para `/ban_blacklist`.
+5. Testes para paginação do `/blacklist`.
+6. Correção dos testes em `test_checkin_handlers.py`.
+7. Database setup/confirmation (SQLite for core?)
+8. Testing framework configuration.
+9. Core functionality implementation (outros comandos).
+10. Documentation completion
+11. Deployment pipeline setup
 
 ## Active Issues
 - **Testes Automatizados Falhando:** 4 testes em `test_checkin_handlers.py` estão falhando.
@@ -60,6 +65,7 @@
 - **DB Pendente:** Confirmação do uso de SQLite para funcionalidades core.
 
 ## Recent Updates
+- Implementação da análise de contexto em menções ao bot para gerar respostas mais precisas.
 - Separação das respostas do primeiro check-in (1 ponto) das respostas para usuários com 2-3 pontos.
 - Readequação das faixas de pontuação para as mensagens de check-in (escala máxima de 34 pontos).
 - Implementado comando `/ban_blacklist`.
