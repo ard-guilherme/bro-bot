@@ -464,7 +464,7 @@ async def checkinscore_command(update: Update, context: ContextTypes.DEFAULT_TYP
 
 # --- Novas Listas de Respostas por Faixa ---
 
-responses_1_3 = [
+responses_1 = [
     "Bem-vindo à jornada, {user_name}! Seu primeiro check-in é o início de algo grande! 💪",
     "É isso aí, {user_name}! O primeiro passo foi dado. Bora construir esse shape! 🔥",
     "Check-in na área, {user_name}! Feliz em te ver começando com a gente! ✨",
@@ -475,6 +475,19 @@ responses_1_3 = [
     "Mandou bem, {user_name}! Check-in confirmado. O caminho é esse! 👉",
     "Que legal te ver por aqui, {user_name}! Primeiro check-in feito! 🎉",
     "Registro feito, {user_name}! Continue assim e os resultados virão! 😉",
+]
+
+responses_2_3 = [
+    "Voltou para mais um, {user_name}! Consistência é tudo! 💪",
+    "Mais um check-in, {user_name}! Seu shape está começando a notar! 🔥",
+    "Segundo/terceiro check-in na conta! Gostamos de ver isso, {user_name}! ✨",
+    "Tá pegando o jeito, {user_name}! Mais um check-in registrado! 🚀",
+    "A jornada continua, {user_name}! Check-in confirmado! ✅",
+    "Não é coincidência, é comprometimento! Bom trabalho, {user_name}! 🤝",
+    "Já está criando o hábito, {user_name}! Check-in contabilizado! 💯",
+    "Tá indo bem, {user_name}! Mais um check-in no histórico! 👉",
+    "Construindo dia após dia! Check-in confirmado, {user_name}! 🎯",
+    "Progresso é a soma de pequenos esforços! Boa, {user_name}! 🏋️",
 ]
 
 responses_4_7 = [
@@ -567,8 +580,10 @@ def generate_checkin_response_static(user_name: str, checkin_count: int) -> str:
     chosen_response = ""
 
     # Seleciona a lista apropriada e escolhe uma resposta aleatoriamente
-    if 1 <= safe_checkin_count <= 3:
-        chosen_response = random.choice(responses_1_3).format(user_name=user_name)
+    if safe_checkin_count == 1:
+        chosen_response = random.choice(responses_1).format(user_name=user_name)
+    elif 2 <= safe_checkin_count <= 3:
+        chosen_response = random.choice(responses_2_3).format(user_name=user_name)
     elif 4 <= safe_checkin_count <= 7:
         chosen_response = random.choice(responses_4_7).format(user_name=user_name)
     elif 8 <= safe_checkin_count <= 12:

@@ -1,13 +1,15 @@
 # Active Context
 
 ## Current Focus
+- Separação das respostas para o primeiro check-in (1 ponto) das respostas para usuários com 2-3 pontos.
 - Readequação das faixas de pontuação do sistema de check-in para uma escala máxima de 34 pontos.
 - Escrever e executar testes automatizados para o novo comando `/ban_blacklist`.
 - Documentar a adição do comando `/ban_blacklist` (concluído).
 - Planejar próximos passos (corrigir testes existentes ou nova feature).
 
 ## Recent Changes
-- **Nova Melhoria:** Readequação das faixas de pontuação para as mensagens de check-in ajustando para escala máxima de 34 pontos (considerando reset periódico a cada 30 dias). Foram ajustadas as faixas de pontuação de: [1-3, 4-7, 8-15, 16-25, 26-40, 41-60, 61+] para [1-3, 4-7, 8-12, 13-18, 19-25, 26-30, 31+].
+- **Nova Melhoria:** Separadas as respostas do primeiro check-in (1 ponto) das respostas para usuários com 2-3 pontos, evitando mensagens inadequadas que faziam referência ao "primeiro check-in" para usuários que já tinham feito mais de um check-in.
+- **Nova Melhoria:** Readequação das faixas de pontuação para as mensagens de check-in ajustando para escala máxima de 34 pontos (considerando reset periódico a cada 30 dias). Foram ajustadas as faixas de pontuação de: [1-3, 4-7, 8-15, 16-25, 26-40, 41-60, 61+] para [1, 2-3, 4-7, 8-12, 13-18, 19-25, 26-30, 31+].
 - **Nova Feature:** Adicionado o comando `/ban_blacklist <group_name>` para administradores. Este comando bane usuários da blacklist de um grupo específico e remove as entradas correspondentes (apenas dos usuários banidos com sucesso). (Implementado em `src/utils/mongodb_client.py` e `src/bot/blacklist_handlers.py`, registrado em `src/main.py`).
 - **Correção de Bug/Melhoria (Blacklist):** Implementada paginação na listagem da blacklist (`/blacklist` command) para evitar o erro "Message is too long". A lista agora é dividida em mensagens de até 4000 caracteres, enviadas sequencialmente. O ID do item foi adicionado à listagem para facilitar a remoção via `/rmblacklist`. Os botões inline de remoção foram removidos da listagem. (Implementado em `src/bot/blacklist_handlers.py` usando MongoDB).
 - **Correção DB:** Confirmado o uso de MongoDB para a funcionalidade de blacklist nos documentos do Memory Bank.
@@ -30,6 +32,7 @@
 6. Implementing comprehensive logging
 
 ## Current Considerations
+- Cobertura de testes para a separação das respostas de primeiro check-in.
 - Cobertura de testes para as novas faixas de pontuação de check-in.
 - Cobertura de testes para `/ban_blacklist`.
 - Clarificar uso do SQLite para outras features.
@@ -40,15 +43,16 @@
 - Deployment configuration (including MongoDB)
 
 ## Pending Tasks
-1. Testes para as novas faixas de pontuação de check-in.
-2. Testes para `/ban_blacklist`.
-3. Testes para paginação do `/blacklist`.
-4. Correção dos testes em `test_checkin_handlers.py`.
-5. Database setup/confirmation (SQLite for core?)
-6. Testing framework configuration.
-7. Core functionality implementation (outros comandos).
-8. Documentation completion
-9. Deployment pipeline setup
+1. Testes para separação das respostas de primeiro check-in.
+2. Testes para as novas faixas de pontuação de check-in.
+3. Testes para `/ban_blacklist`.
+4. Testes para paginação do `/blacklist`.
+5. Correção dos testes em `test_checkin_handlers.py`.
+6. Database setup/confirmation (SQLite for core?)
+7. Testing framework configuration.
+8. Core functionality implementation (outros comandos).
+9. Documentation completion
+10. Deployment pipeline setup
 
 ## Active Issues
 - **Testes Automatizados Falhando:** 4 testes em `test_checkin_handlers.py` estão falhando.
@@ -56,6 +60,7 @@
 - **DB Pendente:** Confirmação do uso de SQLite para funcionalidades core.
 
 ## Recent Updates
+- Separação das respostas do primeiro check-in (1 ponto) das respostas para usuários com 2-3 pontos.
 - Readequação das faixas de pontuação para as mensagens de check-in (escala máxima de 34 pontos).
 - Implementado comando `/ban_blacklist`.
 - Implementada paginação para o comando `/blacklist` (MongoDB).
