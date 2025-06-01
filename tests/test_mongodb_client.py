@@ -139,17 +139,11 @@ async def test_set_checkin_anchor(mongodb_setup):
     # Configura o banco de dados
     mongodb_client.db = mock_db
     
-    # Configura o mock para end_checkin
-    mongodb_client.end_checkin = AsyncMock(return_value=True)
-    
     # Configura o mock para insert_one
     mock_checkin_anchors.insert_one.return_value = MagicMock(acknowledged=True)
     
     # Executa o método set_checkin_anchor
     result = await mongodb_client.set_checkin_anchor(12345, 67890)
-    
-    # Verifica se o método end_checkin foi chamado
-    mongodb_client.end_checkin.assert_called_once_with(12345)
     
     # Verifica se o método insert_one foi chamado com os parâmetros corretos
     mock_checkin_anchors.insert_one.assert_called_once()
@@ -157,7 +151,10 @@ async def test_set_checkin_anchor(mongodb_setup):
     assert args[0]["chat_id"] == 12345
     assert args[0]["message_id"] == 67890
     assert args[0]["active"] is True
+    assert args[0]["points_value"] == 1  # Valor padrão
     assert isinstance(args[0]["created_at"], datetime)
+    # Verifica que anchor_text não está presente quando não fornecido
+    assert "anchor_text" not in args[0]
     
     # Verifica o resultado
     assert result is True
@@ -172,9 +169,6 @@ async def test_set_checkin_anchor_error(mongodb_setup):
     
     # Configura o banco de dados
     mongodb_client.db = mock_db
-    
-    # Configura o mock para end_checkin
-    mongodb_client.end_checkin = AsyncMock(return_value=True)
     
     # Configura o mock para insert_one para lançar uma exceção
     mock_checkin_anchors.insert_one.side_effect = PyMongoError("Insert error")

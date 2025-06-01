@@ -116,7 +116,7 @@ async def test_set_anchor_success(setup_mocks):
     await set_anchor(update, context, points_value)
 
     mongodb_client.set_checkin_anchor.assert_called_once_with(
-        mocks["chat"].id, mocks["replied_message"].message_id, points_value
+        mocks["chat"].id, mocks["replied_message"].message_id, points_value, mocks["replied_message"].text
     )
     update.message.delete.assert_called_once()
     context.bot.send_message.assert_called_once()
@@ -135,7 +135,7 @@ async def test_set_anchor_failure(setup_mocks):
     await set_anchor(update, context, points_value)
 
     mongodb_client.set_checkin_anchor.assert_called_once_with(
-        mocks["chat"].id, mocks["replied_message"].message_id, points_value
+        mocks["chat"].id, mocks["replied_message"].message_id, points_value, mocks["replied_message"].text
     )
     # Corrigido: delete não é chamado
     update.message.delete.assert_not_called()

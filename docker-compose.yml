@@ -1,6 +1,28 @@
 version: '3.8'
 
 services:
+  # Serviço do bot Telegram
+  gym-nation-bot:
+    build: .
+    container_name: gym-nation-bot
+    environment:
+      - TELEGRAM_API_TOKEN=${TELEGRAM_API_TOKEN}
+      - OWNER_ID=${OWNER_ID}
+      - BOT_USERNAME=${BOT_USERNAME}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - MONGODB_CONNECTION_STRING=${MONGODB_CONNECTION_STRING}
+      - QA_DAILY_LIMIT=${QA_DAILY_LIMIT:-2}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    restart: unless-stopped
+    depends_on:
+      - mongodb
+    volumes:
+      # Monta o arquivo .env para desenvolvimento local
+      - ./.env:/app/.env:ro
+    networks:
+      - gym-nation-network
+
+  # MongoDB local (para desenvolvimento ou backup)
   mongodb:
     image: mongo:latest
     container_name: gym-nation-mongodb
@@ -8,11 +30,18 @@ services:
       - "27017:27017"
     volumes:
       - mongodb_data:/data/db
+      - ./migration:/docker-entrypoint-initdb.d
     environment:
       - MONGO_INITDB_ROOT_USERNAME=admin
       - MONGO_INITDB_ROOT_PASSWORD=password
     restart: unless-stopped
+    networks:
+      - gym-nation-network
 
 volumes:
   mongodb_data:
-    driver: local 
+    driver: local
+
+networks:
+  gym-nation-network:
+    driver: bridge 

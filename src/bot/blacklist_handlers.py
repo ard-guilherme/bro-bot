@@ -137,7 +137,7 @@ async def addblacklist_command(update: Update, context: ContextTypes.DEFAULT_TYP
             
             # Envia mensagem privada
             notification_text = (
-                f"Sua postagem [link]({message_link}) foi adicionada à blacklist por não estar alinhada com o propósito {chat_title}.\n\n"
+                f"Olá, [sua postagem]({message_link}) foi adicionada à blacklist por não estar alinhada com o propósito do grupo {chat_title}.\n\n"
                 f"Mesmo que ela tenha sido excluída, entre em contato com um ADM para justificar e removê-lo da lista. "
                 f"Caso contrário, eventualmente poderá sofrer banimento."
             )
@@ -150,7 +150,45 @@ async def addblacklist_command(update: Update, context: ContextTypes.DEFAULT_TYP
             )
             logger.info(f"Mensagem de notificação enviada ao usuário {user_id} sobre adição à blacklist")
         except Exception as e:
+            error_message = str(e)
             logger.warning(f"Não foi possível enviar mensagem privada ao usuário {user_id}: {e}")
+            
+            # Verifica se é o erro específico de não poder iniciar conversa
+            if "bot can't initiate conversation with a user" in error_message:
+                logger.info(f"O usuário {user_id} nunca interagiu com o bot antes, não foi possível enviar mensagem privada")
+                
+                # Prepara username/menção para notificação pública
+                display_name = f"@{username}" if username else user_name
+                
+                try:
+                    # Envia uma mensagem temporária no grupo
+                    public_notification = (
+                        f"{display_name}, [sua postagem]({message_link}) foi adicionada à blacklist por não estar alinhada com o propósito do grupo {chat_title}.\n\n"
+                        f"Mesmo que ela tenha sido excluída, entre em contato com um ADM para justificar e removê-lo da lista. "
+                        f"Caso contrário, eventualmente poderá sofrer banimento."
+                    )
+                    
+                    # Envia a mensagem e programa para ser excluída após 60 segundos
+                    sent_message = await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=public_notification,
+                        parse_mode=ParseMode.MARKDOWN,
+                        disable_web_page_preview=True
+                    )
+                    
+                    # Programa a exclusão da mensagem após 60 segundos
+                    context.job_queue.run_once(
+                        lambda context: context.bot.delete_message_after(
+                            chat_id=sent_message.chat_id, 
+                            message_id=sent_message.message_id
+                        ),
+                        60,  # 60 segundos
+                        data={"chat_id": sent_message.chat_id, "message_id": sent_message.message_id}
+                    )
+                    
+                    logger.info(f"Enviada notificação pública temporária para {user_id} sobre adição à blacklist")
+                except Exception as e2:
+                    logger.error(f"Erro ao enviar notificação pública para {user_id}: {e2}")
         
         # Não enviamos mais mensagem de confirmação
         

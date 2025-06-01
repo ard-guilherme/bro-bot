@@ -39,7 +39,7 @@ class AnthropicClient:
         message_content: str, 
         image_data: Optional[bytes] = None,
         image_mime_type: Optional[str] = None,
-        max_tokens: int = 1024
+        max_tokens: int = 9999
     ) -> str:
         """
         Gera uma resposta usando a API da Anthropic.
@@ -107,7 +107,7 @@ class AnthropicClient:
                 logger.error(f"Erro ao processar imagem: {e}")
         
         payload = {
-            "model": "claude-3-7-sonnet-latest",
+            "model": "claude-sonnet-4-20250514",
             "max_tokens": max_tokens,
             "messages": [
                 {"role": "user", "content": message_content_list}
@@ -197,20 +197,21 @@ Assistant:"""
 
         try:
             logger.info(f"Gerando mensagem motivacional para {user_name}")
-            response = await self.generate_response(prompt, "{{mensagem_de_checkin}}", max_tokens=50)
+            response = await self.generate_response(prompt, "{{mensagem_de_checkin}}", max_tokens=1024)
             logger.info(f"Mensagem motivacional gerada para {user_name}: {response}")
             return response
         except Exception as e:
             logger.error(f"Erro inesperado ao gerar mensagem motivacional: {e}")
             return None
 
-    async def generate_checkin_response(self, user_message: str, user_name: str) -> Optional[str]:
+    async def generate_checkin_response(self, user_message: str, user_name: str, anchor_text: str = None) -> Optional[str]:
         """
         Gera uma resposta curta, engraçada e personalizada para a mensagem de check-in de um usuário.
 
         Args:
             user_message (str): O texto da mensagem de check-in do usuário.
             user_name (str): O nome do usuário.
+            anchor_text (str, optional): O texto da mensagem âncora que iniciou o check-in.
 
         Returns:
             Optional[str]: A mensagem gerada ou None em caso de erro.
@@ -219,36 +220,39 @@ Assistant:"""
             logger.warning("Cliente Anthropic não configurado. Não é possível gerar resposta de check-in.")
             return None
 
+        # Prepara o contexto da âncora se disponível
+        anchor_context = ""
+        if anchor_text:
+            anchor_context = f"""
+
+<MENSAGEM DA CHAMADA DE CHECK-IN>
+{anchor_text}
+</MENSAGEM DA CHAMADA DE CHECK-IN>
+
+O usuário está respondendo a essa chamada específica de check-in. Use essa mensagem para tornar sua resposta mais assertiva e conectada com o que foi pedido."""
+
         prompt = f"""Human: Você é o Bro Bot, um bot de Telegram para uma comunidade fitness chamada GYM NATION. Sua personalidade é engraçada, um pouco sarcástica, motivacional (estilo 'maromba') e autêntica.
 
-Um usuário chamado '{user_name}' acabou de fazer um check-in especial (que vale o dobro de pontos) e incluiu a seguinte mensagem: "{user_message}"
+Um usuário chamado '{user_name}' acabou de fazer um check-in especial (que vale o dobro de pontos) para seguinte chamada de check-in: "{anchor_context}"
 
-Sua tarefa é gerar uma resposta **CURTA** (máximo 1-2 frases, idealmente apenas alguns emojis ou palavras) para a mensagem dele. A resposta deve:
+Sua tarefa é gerar uma resposta **CURTA** (máximo 3 frases, idealmente apenas alguns emojis ou palavras) para a mensagem dele. A resposta deve:
 1. Ser engraçada e/ou motivacional, com o seu tom característico.
 2. Reconhecer o esforço ou o conteúdo da mensagem do usuário de forma leve.
 3. Ser respeitosa.
 4. **NÃO** mencionar explicitamente os pontos dobrados.
-5. **NÃO** ser genérica. Tente se conectar com o que o usuário escreveu.
+5. **NÃO** ser genérica. Tente se conectar com o que o usuário escreveu{' e com a mensagem da chamada de check-in, fazendo uma referência a ela' if anchor_text else ''}.
 6. Variar as respostas, evite ser repetitivo.
 7. **NÃO** use necessariamente o nome do usuário na resposta, só se for necessário.
 8. **NÃO** ser bobo demais, seu humor é bem especial.
 9. **NÃO** use aspas no início e no final da resposta.
 
-Exemplos de boas respostas:
-- "Boa! Mandou bem demais! 💪"
-- "Isso aí, {user_name}! Shape tá vindo! 🔥"
-- "É O SUPER CHECK-IN!! Dale, {user_name}! 🚀"
-- "{user_name} representando! 👊✨"
-- "Aí sim, {user_name}! Que energia! ⚡"
-- "Só vejo progresso aí! 😎"
-
 Agora, gere apenas a resposta para a mensagem de '{user_name}': "{user_message}"
 
-Assistant:"""
+A:"""
 
         try:
-            logger.info(f"Gerando resposta de check-in para {user_name} com a mensagem: {user_message}")
-            response = await self.generate_response(prompt, "{{mensagem_de_checkin}}", max_tokens=50)
+            logger.info(f"Gerando resposta de check-in para {user_name} com a mensagem: {user_message}" + (f" e âncora: {anchor_text[:50]}..." if anchor_text else ""))
+            response = await self.generate_response(prompt, "{{mensagem_de_checkin}}", max_tokens=1024)
             logger.info(f"Resposta de check-in gerada para {user_name}: {response}")
             return response
         except Exception as e:

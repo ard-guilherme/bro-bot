@@ -26,7 +26,7 @@ class MongoDBClient:
         """
         self.connection_string = connection_string or os.getenv(
             "MONGODB_CONNECTION_STRING", 
-            "MONGODB_CONNECTION_STRINGMONGODB_CONNECTION_STRING"
+            "mongodb://localhost:27017"
         )
         self.client = None
         self.db = None
@@ -56,7 +56,7 @@ class MongoDBClient:
     
     # Métodos para gerenciar o check-in
     
-    async def set_checkin_anchor(self, chat_id: int, message_id: int, points_value: int = 1) -> bool:
+    async def set_checkin_anchor(self, chat_id: int, message_id: int, points_value: int = 1, anchor_text: str = None) -> bool:
         """
         Define uma mensagem como âncora de check-in.
         
@@ -64,47 +64,56 @@ class MongoDBClient:
             chat_id (int): ID do chat.
             message_id (int): ID da mensagem âncora.
             points_value (int): Valor em pontos deste check-in (default: 1).
+            anchor_text (str): Texto da mensagem âncora (para check-in plus).
             
         Returns:
             bool: True se a operação foi bem-sucedida, False caso contrário.
         """
         try:
-            # Primeiro, desativa qualquer check-in ativo
-            await self.end_checkin(chat_id)
+            # # Primeiro, desativa qualquer check-in ativo
+            # await self.end_checkin(chat_id)
             
-            # Define o novo check-in
-            result = await self.db.checkin_anchors.insert_one({
+            # Prepara os dados da âncora
+            anchor_data = {
                 "chat_id": chat_id,
                 "message_id": message_id,
                 "created_at": datetime.now(),
                 "active": True,
                 "points_value": points_value
-            })
+            }
+            
+            # Adiciona o texto da âncora se fornecido
+            if anchor_text:
+                anchor_data["anchor_text"] = anchor_text
+            
+            # Define o novo check-in
+            result = await self.db.checkin_anchors.insert_one(anchor_data)
             
             return result.acknowledged
         except PyMongoError as e:
             logger.error(f"Erro ao definir âncora de check-in: {e}")
             return False
     
-    async def end_checkin(self, chat_id: int) -> bool:
+    async def end_checkin(self, chat_id: int, anchor_id: str) -> bool:
         """
-        Desativa o check-in atual.
+        Desativa o check-in específico.
         
         Args:
             chat_id (int): ID do chat.
+            anchor_id (str): ID da âncora de check-in a ser desativada.
             
         Returns:
             bool: True se a operação foi bem-sucedida, False caso contrário.
         """
         try:
-            result = await self.db.checkin_anchors.update_many(
-                {"chat_id": chat_id, "active": True},
+            result = await self.db.checkin_anchors.update_one(
+                {"_id": ObjectId(anchor_id), "chat_id": chat_id, "active": True},
                 {"$set": {"active": False}}
             )
             
             return result.acknowledged
         except PyMongoError as e:
-            logger.error(f"Erro ao desativar check-in para chat {chat_id}: {e}")
+            logger.error(f"Erro ao desativar check-in {anchor_id} para chat {chat_id}: {e}")
             return False
     
     async def get_anchor_checkin_count(self, chat_id: int, anchor_id: str) -> int:
@@ -119,9 +128,16 @@ class MongoDBClient:
             int: Número de check-ins para a âncora.
         """
         try:
+            # Converte anchor_id para ObjectId
+            try:
+                anchor_object_id = ObjectId(anchor_id)
+            except Exception as e:
+                logger.error(f"Erro ao converter anchor_id para ObjectId: {anchor_id}. Erro: {e}")
+                return 0
+
             count = await self.db.user_checkins.count_documents({
                 "chat_id": chat_id,
-                "anchor_id": anchor_id
+                "anchor_id": anchor_object_id
             })
             
             return count
@@ -129,46 +145,93 @@ class MongoDBClient:
             logger.error(f"Erro ao obter contagem de check-ins para âncora: {e}")
             return 0
     
-    async def get_active_checkin(self, chat_id: int) -> Optional[Dict]:
+    async def get_active_checkin(self, chat_id: int) -> Optional[List[Dict]]:
         """
-        Obtém o check-in ativo para um chat.
+        Obtém todos os check-ins ativos para um chat.
         
         Args:
             chat_id (int): ID do chat.
             
         Returns:
-            Optional[Dict]: Dicionário com os dados do check-in (incluindo points_value),
-                           ou None se não houver check-in ativo.
+            Optional[List[Dict]]: Lista com os dados dos check-ins ativos (incluindo points_value),
+                                 ou None se não houver check-ins ativos.
         """
         try:
-            result = await self.db.checkin_anchors.find_one(
+            cursor = self.db.checkin_anchors.find(
                 {"chat_id": chat_id, "active": True}
             )
             
-            return result
+            results = await cursor.to_list(length=None)
+            
+            return results if results else None
         except PyMongoError as e:
-            logger.error(f"Erro ao obter check-in ativo: {e}")
+            logger.error(f"Erro ao obter check-ins ativos: {e}")
             return None
     
-    async def confirm_manual_checkin(self, chat_id: int, user_id: int, user_name: str, username: str = None) -> Optional[int]:
+    async def get_anchor_details(self, anchor_id: str) -> Optional[Dict]:
         """
-        Confirma manualmente um check-in para um usuário no check-in ativo.
+        Obtém detalhes completos de uma âncora específica.
+        
+        Args:
+            anchor_id (str): ID da âncora de check-in.
+            
+        Returns:
+            Optional[Dict]: Dados completos da âncora incluindo texto (se disponível), ou None se não encontrada.
+        """
+        try:
+            # Converte anchor_id para ObjectId
+            try:
+                anchor_object_id = ObjectId(anchor_id)
+            except Exception as e:
+                logger.error(f"Erro ao converter anchor_id para ObjectId: {anchor_id}. Erro: {e}")
+                return None
+
+            anchor_details = await self.db.checkin_anchors.find_one({
+                "_id": anchor_object_id,
+                "active": True
+            })
+            
+            return anchor_details
+        except PyMongoError as e:
+            logger.error(f"Erro ao obter detalhes da âncora {anchor_id}: {e}")
+            return None
+    
+    async def confirm_manual_checkin(self, chat_id: int, anchor_id: str, user_id: int, user_name: str, username: str = None) -> Optional[int]:
+        """
+        Confirma manualmente um check-in para um usuário no check-in ativo especificado.
         Retorna o novo total de pontos do usuário se bem-sucedido, None se já fez check-in ou erro.
         """
         try:
-            active_checkin = await self.get_active_checkin(chat_id)
-            if not active_checkin:
-                logger.warning(f"Tentativa de confirmação manual sem check-in ativo: chat {chat_id}")
+            active_checkins = await self.get_active_checkin(chat_id)
+            if not active_checkins:
+                logger.warning(f"Tentativa de confirmação manual sem check-ins ativos: chat {chat_id}")
                 return None
 
-            anchor_id = active_checkin["_id"]
+            # Converte anchor_id para ObjectId para comparação
+            try:
+                anchor_object_id = ObjectId(anchor_id)
+            except Exception as e:
+                logger.error(f"Erro ao converter anchor_id para ObjectId: {anchor_id}. Erro: {e}")
+                return None
+
+            # Procura a âncora específica na lista de check-ins ativos
+            active_checkin = None
+            for checkin in active_checkins:
+                if checkin["_id"] == anchor_object_id:
+                    active_checkin = checkin
+                    break
+
+            if not active_checkin:
+                logger.warning(f"Âncora {anchor_id} não encontrada nos check-ins ativos do chat {chat_id}")
+                return None
+
             points_value = active_checkin.get("points_value", 1) # Obtém valor da âncora
 
             # Verifica se já existe check-in para esta âncora
             existing_checkin = await self.db.user_checkins.find_one({
                 "chat_id": chat_id,
                 "user_id": user_id,
-                "anchor_id": anchor_id
+                "anchor_id": anchor_object_id
             })
 
             if existing_checkin:
@@ -181,7 +244,7 @@ class MongoDBClient:
                 "user_id": user_id,
                 "user_name": user_name,
                 "username": username,
-                "anchor_id": anchor_id,
+                "anchor_id": anchor_object_id,
                 "checkin_type": "manual", # Indica que foi manual
                 "points_value": points_value, # Salva a pontuação
                 "created_at": datetime.now()
@@ -203,7 +266,7 @@ class MongoDBClient:
             logger.error(f"Erro inesperado ao confirmar check-in manual: {e}")
             return None
 
-    async def record_user_checkin(self, chat_id: int, user_id: int, user_name: str, username: str = None) -> Optional[int]:
+    async def record_user_checkin(self, chat_id: int, anchor_id: str, user_id: int, user_name: str, username: str = None) -> Optional[int]:
         """
         Registra um check-in de um usuário para a âncora ativa.
         Verifica se o usuário já fez check-in para esta âncora específica.
@@ -212,13 +275,25 @@ class MongoDBClient:
         None se o usuário já fez check-in para esta âncora ou se ocorrer um erro.
         """
         try:
-            # 1. Encontra a âncora ativa
-            active_checkin = await self.get_active_checkin(chat_id)
-            if not active_checkin:
-                logger.debug(f"Tentativa de check-in sem âncora ativa no chat {chat_id} por user {user_id}")
-                return None # Não há âncora ativa
+            # Converte anchor_id para ObjectId
+            try:
+                anchor_object_id = ObjectId(anchor_id)
+            except Exception as e:
+                logger.error(f"Erro ao converter anchor_id para ObjectId: {anchor_id}. Erro: {e}")
+                return None
 
-            anchor_id = active_checkin["_id"]
+            # 1. Usa o anchor_id fornecido como parâmetro
+            # Busca informações da âncora específica
+            active_checkin = await self.db.checkin_anchors.find_one({
+                "_id": anchor_object_id,
+                "chat_id": chat_id,
+                "active": True
+            })
+            
+            if not active_checkin:
+                logger.debug(f"Âncora {anchor_id} não encontrada ou não está ativa no chat {chat_id}")
+                return None # Âncora não encontrada ou não ativa
+
             points_value = active_checkin.get("points_value", 1) # Pega a pontuação da âncora
             checkin_type = "plus" if points_value > 1 else "normal" # Define o tipo
 
@@ -226,7 +301,7 @@ class MongoDBClient:
             existing_checkin = await self.db.user_checkins.find_one({
                 "chat_id": chat_id,
                 "user_id": user_id,
-                "anchor_id": anchor_id
+                "anchor_id": anchor_object_id
             })
 
             if existing_checkin:
@@ -239,7 +314,7 @@ class MongoDBClient:
                 "user_id": user_id,
                 "user_name": user_name,
                 "username": username,
-                "anchor_id": anchor_id, # Link para a âncora específica
+                "anchor_id": anchor_object_id, # Link para a âncora específica
                 "checkin_type": checkin_type, # Salva 'normal' ou 'plus'
                 "points_value": points_value, # Salva a pontuação do check-in
                 "created_at": datetime.now()

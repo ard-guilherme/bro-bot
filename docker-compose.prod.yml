@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  # Serviço do bot Telegram para produção
+  gym-nation-bot:
+    build: .
+    container_name: gym-nation-bot-prod
+    environment:
+      - TELEGRAM_API_TOKEN=${TELEGRAM_API_TOKEN}
+      - OWNER_ID=${OWNER_ID}
+      - BOT_USERNAME=${BOT_USERNAME}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - MONGODB_CONNECTION_STRING=${MONGODB_CONNECTION_STRING}
+      - QA_DAILY_LIMIT=${QA_DAILY_LIMIT:-2}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    restart: unless-stopped
+    volumes:
+      # Monta apenas logs para produção
+      - ./logs:/app/logs
+    networks:
+      - gym-nation-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import asyncio; from src.utils.mongodb_instance import mongodb_client; asyncio.run(mongodb_client.client.admin.command('ping'))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  gym-nation-network:
+    driver: bridge
+
+volumes:
+  logs:
+    driver: local 

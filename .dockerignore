@@ -1,0 +1,67 @@
+# Git files
+.git
+.gitignore
+
+# Python cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+.pytest_cache
+
+# Virtual environment
+venv/
+env/
+.venv/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+bot_log.txt
+
+# Documentation
+docs/
+README.md
+CLAUDE.md
+
+# Test files (opcional - remova se quiser incluir testes no container)
+tests/
+test_*.py
+*_test.py
+
+# Development scripts
+check_*.py
+create_test_*.py
+test_*.py
+clean_*.py
+fix_db.py
+check_db.py
+
+# Environment files (serão montados como volumes)
+.env.example
+
+# Docker files
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Memory bank (opcional - mantenha se quiser documentação no container)
+memory-bank/
+
+# Scripts
+scripts/ 
