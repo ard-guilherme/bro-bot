@@ -1,270 +1,471 @@
-# BRO BOT ✅ PRODUÇÃO ATIVA
+# Bro Bot - GYM NATION Telegram Bot
 
-Um bot Telegram **completo e funcional** para gerenciamento de comunidades de fitness, atualmente **rodando em produção 24/7**. Desenvolvido especificamente para a comunidade GYM NATION, o bot oferece sistema de check-in gamificado, moderação inteligente, respostas de IA contextuais, e automação completa de mensagens.
+Um bot Telegram completo desenvolvido em Python para gerenciamento de comunidades de fitness. O bot oferece sistema de check-in gamificado, moderação inteligente com blacklist, respostas contextuais com IA (Anthropic Claude), mensagens recorrentes automáticas e controles administrativos avançados.
 
-## 🚀 Status de Produção
+## 📋 Índice
 
-**✅ BOT ATIVO EM PRODUÇÃO DESDE JUNHO 2025**
-- **Container**: `gym-nation-bot-prod` rodando 24/7
-- **Database**: MongoDB Atlas (Cloud) - 13 coleções migradas
-- **Deploy**: Docker + Docker Compose automatizado
-- **Monitoring**: Logs em tempo real + sistema de observabilidade
-- **Uptime**: 99.9% disponibilidade
+- [Funcionalidades](#-funcionalidades)
+- [Arquitetura](#-arquitetura)
+- [Tecnologias Utilizadas](#-tecnologias-utilizadas)
+- [Instalação e Configuração](#-instalação-e-configuração)
+- [Uso e Comandos](#-uso-e-comandos)
+- [Deployment](#-deployment)
+- [Estrutura do Projeto](#-estrutura-do-projeto)
+- [Desenvolvimento](#-desenvolvimento)
+- [API e Integrações](#-api-e-integrações)
+- [Contribuição](#-contribuição)
 
-## Funcionalidades Principais ✅
+## 🚀 Funcionalidades
 
-### 🎯 **Sistema de Check-in Gamificado**
-- Check-in normal: 1 ponto | Check-in PLUS: 2+ pontos
-- Ranking automático com pontuação inteligente
-- Múltiplos check-ins simultâneos por grupo
-- Mensagens personalizadas por nível de experiência
-- Sistema de reset periódico (30 dias)
+### Sistema de Check-in Gamificado
+- **Check-in Normal**: 1 ponto por check-in
+- **Check-in PLUS**: 2+ pontos com respostas personalizadas da IA
+- **Múltiplas Âncoras**: Suporte a múltiplos check-ins simultâneos por grupo
+- **Ranking Dinâmico**: Sistema de pontuação e scoreboard em tempo real
+- **Confirmação Manual**: Admins podem confirmar check-ins manualmente
+- **Mensagens Contextuais**: Respostas diferenciadas por nível de experiência
 
-### 🤖 **IA Contextual Avançada**
-- **Anthropic Claude Integration**: Respostas inteligentes sobre fitness
-- **Análise de Contexto**: Bot considera contexto de mensagens em thread
-- **Limite inteligente**: 2 perguntas/dia por usuário
-- **Feedback System**: Usuários avaliam qualidade das respostas
+### Moderação Inteligente
+- **Blacklist Automática**: Sistema de lista negra para moderação
+- **Notificações Inteligentes**: Aviso automático via DM para usuários adicionados
+- **Fallback para Novos Usuários**: Mensagem no grupo quando DM não é possível
+- **Banimento em Lote**: Comando para banir múltiplos usuários da blacklist
+- **Paginação Automática**: Listas grandes divididas em múltiplas mensagens
+- **Gestão por Links**: Remoção de itens via link da mensagem original
 
-### 🛡️ **Sistema de Moderação Inteligente**
-- **Blacklist Automática**: Adição e notificação instantânea
-- **Notificação Privada**: Usuários são avisados via DM quando adicionados
-- **Banimento em Lote**: Comando `/ban_blacklist` para múltiplos usuários
-- **Paginação Inteligente**: Listas grandes divididas automaticamente
+### IA Contextual (Anthropic Claude)
+- **Respostas Especializadas**: Foco em fitness, nutrição e treino
+- **Análise de Contexto**: Considera thread completa ao responder menções
+- **Rate Limiting**: 2 perguntas por dia por usuário
+- **Sistema de Feedback**: Usuários podem avaliar qualidade das respostas
+- **Controle de Uso**: Métricas e limitações de API
 
-### 📅 **Automação de Mensagens**
-- **Mensagens Recorrentes**: Agendamento flexível (horas, dias)
-- **2 Mensagens Ativas**: Sistema funcionando em produção
-- **Edição em Tempo Real**: Modificação sem interrupção
-- **Múltiplos Grupos**: Suporte para várias comunidades
+### Automação de Mensagens
+- **Mensagens Recorrentes**: Agendamento flexível (horas/dias)
+- **Edição em Tempo Real**: Modificação sem interrupção do serviço
+- **Múltiplos Grupos**: Gestão de várias comunidades
+- **Agendamento Inteligente**: Sistema de retry e recuperação
 
-### 👨‍💼 **Controles Administrativos**
+### Controles Administrativos
 - **Hierarquia de Permissões**: Owner → Admins → Membros
 - **Monitoramento de Grupos**: Tracking completo de atividades
-- **Logs Estruturados**: Auditoria completa de ações
-- **Comandos Avançados**: 20+ comandos administrativos
+- **Auditoria Completa**: Logs estruturados de todas as ações
+- **Gestão de Admins**: Adicionar/remover administradores do bot
 
-## Tecnologias Utilizadas ✅
+## 🏗️ Arquitetura
 
-### **Stack de Produção**
+### Visão Geral
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Telegram API  │    │   Bot Core      │    │  MongoDB Atlas  │
+│                 │◄──►│                 │◄──►│                 │
+│  - Messages     │    │  - Handlers     │    │  - User Data    │
+│  - Commands     │    │  - Business     │    │  - Check-ins    │
+│  - Callbacks    │    │  - Logic        │    │  - Blacklist    │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+                              │
+                              ▼
+                       ┌─────────────────┐
+                       │  Anthropic API  │
+                       │                 │
+                       │  - Claude AI    │
+                       │  - Context      │
+                       │  - Analysis     │
+                       └─────────────────┘
+```
+
+### Componentes Principais
+
+1. **Bot Core** (`src/main.py`)
+   - Inicialização e configuração da aplicação
+   - Gerenciamento de handlers e rotas
+   - Sistema de retry e recuperação de erros
+   - Configuração de comandos por escopo
+
+2. **Handlers Modulares** (`src/bot/`)
+   - `handlers.py`: Comandos gerais e administrativos
+   - `checkin_handlers.py`: Sistema de check-in gamificado
+   - `mention_handlers.py`: Respostas IA contextuais
+   - `blacklist_handlers.py`: Moderação e blacklist
+   - `messages.py`: Templates de mensagens
+   - `motivation.py`: Sistema de motivação
+
+3. **Utilitários** (`src/utils/`)
+   - `mongodb_client.py`: Cliente MongoDB com operações CRUD
+   - `anthropic_client.py`: Integração com Claude AI
+   - `config.py`: Gerenciamento de configurações
+   - `filters.py`: Filtros personalizados do Telegram
+   - `recurring_messages_manager.py`: Automação de mensagens
+
+4. **Scripts de Automação** (`scripts/`)
+   - `migrate_to_atlas.py`: Migração de dados local → cloud
+   - `deploy.py`: Automação de deployment
+
+## 💻 Tecnologias Utilizadas
+
+### Core Stack
 - **Python 3.x**: Linguagem principal
-- **python-telegram-bot 21.8**: Framework Telegram (atualizado)
-- **MongoDB Atlas**: Banco de dados cloud em produção
-- **Anthropic Claude API**: IA para respostas contextuais
-- **Docker + Docker Compose**: Containerização completa
-- **Motor + PyMongo**: Drivers MongoDB assíncronos
+- **python-telegram-bot 21.8**: Framework para Telegram Bot API
+- **MongoDB Atlas**: Banco de dados cloud NoSQL
+- **Motor + PyMongo**: Drivers assíncronos e síncronos para MongoDB
+- **Anthropic API**: Integração com Claude AI
 
-### **Infrastructure as Code**
-- **Docker**: Container otimizado com usuário não-root
-- **Docker Compose**: Configurações dev/prod separadas
-- **Environment Management**: .env seguro para produção
-- **Automation Scripts**: Deploy e migração automatizados
+### Infrastructure & DevOps
+- **Docker**: Containerização da aplicação
+- **Docker Compose**: Orquestração de containers
+- **Environment Variables**: Configuração segura via `.env`
 
-## Arquitetura de Produção ✅
+### Development & Testing
+- **pytest**: Framework de testes
+- **pytest-asyncio**: Suporte a testes assíncronos
+- **pytest-mock**: Mocking para testes
+- **python-dotenv**: Carregamento de variáveis de ambiente
 
-```
-Production Environment:
-├── Container: gym-nation-bot-prod
-├── Database: MongoDB Atlas Cluster0
-├── AI API: Anthropic Claude
-├── Monitoring: Structured Logging
-└── Deployment: Docker Compose
+## 🛠️ Instalação e Configuração
 
-Data Flow:
-Telegram API ↔ Bot Core ↔ MongoDB Atlas
-                   ↕
-              Anthropic AI
-                   ↕
-           Logging & Monitoring
-```
+### Pré-requisitos
+- Python 3.8+
+- Docker (opcional, para containerização)
+- MongoDB Atlas account (ou MongoDB local)
+- Anthropic API key
+- Telegram Bot Token
 
-### **Estrutura Modular**
-```
-bro-bot/
-├── src/                      # Código fonte otimizado
-│   ├── main.py               # Entry point com error handling
-│   ├── bot/                  # Handlers modulares
-│   │   ├── handlers.py       # Comandos gerais
-│   │   ├── checkin_handlers.py # Sistema gamificado
-│   │   ├── mention_handlers.py # IA contextual
-│   │   ├── blacklist_handlers.py # Moderação inteligente
-│   │   └── ...               # Outros módulos
-│   └── utils/                # Utilitários de produção
-│       ├── mongodb_client.py # Client Atlas otimizado
-│       ├── anthropic_client.py # IA integration
-│       └── recurring_messages_manager.py # Automação
-├── scripts/                  # Automation & deployment
-│   ├── migrate_to_atlas.py   # Migration tool (✅ completo)
-│   └── deploy.py             # Deployment automation
-├── docker-compose.yml        # Development config
-├── docker-compose.prod.yml   # Production config (✅ ativo)
-├── Dockerfile               # Optimized container
-└── DEPLOY.md                # Production deployment guide
-```
+### Configuração Inicial
 
-## 🚀 Deployment em Produção
+1. **Clone o repositório**
+   ```bash
+   git clone https://github.com/seu-usuario/bro-bot.git
+   cd bro-bot
+   ```
 
-### **Quick Start (Produção)**
+2. **Instale as dependências**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. **Configure as variáveis de ambiente**
+   ```bash
+   cp .env.example .env
+   ```
+   
+   Edite o arquivo `.env` com suas configurações:
+   ```env
+   # Obrigatório: Token do Bot (BotFather)
+   TELEGRAM_API_TOKEN=your_bot_token_here
+   
+   # Obrigatório: Seu ID do Telegram
+   OWNER_ID=123456789
+   
+   # Obrigatório: Chave da API Anthropic
+   ANTHROPIC_API_KEY=sk-ant-api03-your_key_here
+   
+   # Obrigatório: String de conexão MongoDB
+   MONGODB_CONNECTION_STRING=mongodb+srv://user:pass@cluster.mongodb.net/
+   
+   # Opcional: Configurações adicionais
+   BOT_USERNAME=Nations_bro_bot
+   QA_DAILY_LIMIT=2
+   LOG_LEVEL=INFO
+   ```
+
+### Obtenção de Credenciais
+
+1. **Token do Telegram Bot**
+   - Converse com [@BotFather](https://t.me/botfather)
+   - Crie um novo bot com `/newbot`
+   - Copie o token fornecido
+
+2. **Seu ID do Telegram**
+   - Envie uma mensagem para [@userinfobot](https://t.me/userinfobot)
+   - Copie o ID numérico fornecido
+
+3. **Chave da API Anthropic**
+   - Acesse [console.anthropic.com](https://console.anthropic.com/)
+   - Crie uma conta e gere uma API key
+
+4. **MongoDB Atlas**
+   - Crie uma conta em [mongodb.com](https://www.mongodb.com/atlas)
+   - Configure um cluster gratuito
+   - Obtenha a string de conexão
+
+## 📋 Uso e Comandos
+
+### Comandos Gerais (Proprietário/Admins)
+
+| Comando | Descrição | Exemplo |
+|---------|-----------|---------|
+| `/start` | Inicia o bot | `/start` |
+| `/help` | Mostra ajuda | `/help` |
+| `/motivacao` | Mensagem motivacional IA | `/motivacao` |
+| `/macros` | Calcula macronutrientes | `/macros 100g peito frango` |
+| `/regras` | Exibe regras do grupo | `/regras` |
+| `/apresentacao` | Apresentação do bot | `/apresentacao` |
+
+### Sistema de Check-in
+
+| Comando | Descrição | Exemplo |
+|---------|-----------|---------|
+| `/checkin` | Define âncora check-in (1pt) | `/checkin` |
+| `/checkinplus` | Define âncora check-in (2+pts) | `/checkinplus` |
+| `/endcheckin` | Desativa check-in | `/endcheckin anchor_id` |
+| `/checkinscore` | Mostra ranking | `/checkinscore` |
+| `/confirmcheckin` | Confirma check-in manual | `/confirmcheckin @user anchor_id` |
+
+### Moderação e Blacklist
+
+| Comando | Descrição | Exemplo |
+|---------|-----------|---------|
+| `/addblacklist` | Adiciona à blacklist | `/addblacklist` (reply) |
+| `/blacklist` | Lista blacklist | `/blacklist grupo_name` |
+| `/rmblacklist` | Remove da blacklist | `/rmblacklist item_id` |
+| `/ban_blacklist` | Bane usuários em lote | `/ban_blacklist grupo_name` |
+
+### Administração (Apenas Proprietário)
+
+| Comando | Descrição | Exemplo |
+|---------|-----------|---------|
+| `/setadmin` | Adiciona admin | `/setadmin` (reply ou forward) |
+| `/deladmin` | Remove admin | `/deladmin user_id` |
+| `/listadmins` | Lista admins | `/listadmins` |
+| `/monitor` | Monitora grupo | `/monitor` |
+| `/unmonitor` | Para monitoramento | `/unmonitor` |
+
+### Mensagens Recorrentes
+
+| Comando | Descrição | Exemplo |
+|---------|-----------|---------|
+| `/sayrecurrent` | Cria mensagem recorrente | `/sayrecurrent` |
+| `/listrecurrent` | Lista mensagens ativas | `/listrecurrent` |
+| `/delrecurrent` | Remove mensagem | `/delrecurrent message_id` |
+
+### Interação com IA
+
+- **Menções**: Mencione o bot em qualquer mensagem para receber resposta contextual
+- **Rate Limit**: 2 perguntas por dia por usuário
+- **Feedback**: Reaja com 👍/👎 nas respostas para feedback
+
+## 🚀 Deployment
+
+### Desenvolvimento Local
+
 ```bash
-# 1. Clone e configure
-git clone https://github.com/seu-usuario/bro-bot.git
-cd bro-bot
-cp .env.example .env
-# Editar .env com configurações de produção
+# Execução direta
+python -m src.main
 
-# 2. Deploy automático
-python scripts/deploy.py
-
-# 3. Verificar status
-docker logs gym-nation-bot-prod --tail=50
+# Com Docker (desenvolvimento)
+docker-compose up -d
 ```
 
-### **Migração de Dados (✅ Concluída)**
+### Produção
+
+1. **Usando Docker Compose (Recomendado)**
+   ```bash
+   # Configure .env para produção
+   # Use docker-compose.prod.yml
+   docker-compose -f docker-compose.prod.yml up -d
+   ```
+
+2. **Deploy Automatizado**
+   ```bash
+   # Script de deploy completo
+   python scripts/deploy.py
+   ```
+
+3. **Migração de Dados**
+   ```bash
+   # Migrar dados local → Atlas
+   python scripts/migrate_to_atlas.py
+   ```
+
+### Monitoramento
+
 ```bash
-# Migração local → Atlas (já executada com sucesso)
-python scripts/migrate_to_atlas.py
-# ✅ 13/13 coleções migradas
-# ✅ Dados íntegros verificados
-# ✅ Índices criados automaticamente
-```
-
-## Funcionalidades Detalhadas ✅
-
-### **Sistema de Check-in Avançado**
-- **Multi-anchor Support**: Múltiplos check-ins simultâneos
-- **Smart Scoring**: Pontuação inteligente com escala de 34 pontos
-- **Experience Levels**: Respostas diferenciadas por experiência
-- **Manual Confirmation**: Admins podem confirmar check-ins
-- **Real-time Ranking**: Scoreboard atualizado automaticamente
-
-### **IA Contextual de Nova Geração**
-- **Thread Context**: Analisa contexto de mensagens respondidas
-- **Specialized Responses**: Respostas específicas para fitness
-- **Rate Limiting**: Controle inteligente de uso
-- **Quality Feedback**: Sistema de avaliação de respostas
-- **Usage Analytics**: Métricas de uso da IA
-
-### **Blacklist Inteligente 2.0**
-- **Auto Notification**: Notifica usuários automaticamente
-- **Smart Fallback**: Mensagem no grupo para usuários novos
-- **Batch Operations**: Banimento em lote eficiente
-- **Pagination**: Listas grandes organizadas automaticamente
-- **Link Integration**: Remoção via link da mensagem
-
-### **Mensagens Recorrentes Pro**
-- **Flexible Scheduling**: Intervalos personalizáveis
-- **Active Management**: 2 mensagens ativas em produção
-- **Live Editing**: Edição sem interrupção do serviço
-- **Multi-group Support**: Gestão de múltiplas comunidades
-- **Analytics**: Métricas de engajamento
-
-## 🧪 Testes e Qualidade
-
-### **Testing em Produção ✅**
-```bash
-# Testes funcionais (produção validada)
-pytest tests/ -v
-
-# Validação de features em tempo real
-# ✅ Check-in system funcionando
-# ✅ IA responses ativas
-# ✅ Blacklist automation operacional
-# ✅ Recurring messages enviando automaticamente
-```
-
-### **Monitoring & Observability ✅**
-- **Real-time Logs**: `docker logs gym-nation-bot-prod -f`
-- **Health Checks**: Container health monitoring
-- **Performance Metrics**: Response time tracking
-- **Error Tracking**: Comprehensive error logging
-- **Usage Analytics**: User interaction metrics
-
-## 📋 Comandos do Bot (Produção)
-
-### **Comandos Core (✅ Funcionais)**
-- `/checkin` - Check-in normal (1 ponto)
-- `/checkinplus` - Check-in PLUS (2+ pontos)
-- `/checkinscore` - Ranking em tempo real
-- `/motivacao` - IA motivacional
-- `/macros <descrição>` - Cálculo de macros com IA
-
-### **Moderação Inteligente (✅ Ativa)**
-- `/addblacklist` - Adiciona à blacklist + notifica usuário
-- `/blacklist [grupo]` - Lista paginada da blacklist
-- `/rmblacklist <ID>` - Remove da blacklist
-- `/ban_blacklist <grupo>` - Banimento em lote
-
-### **Administração (✅ Operacional)**
-- `/sayrecurrent` - Configura mensagem recorrente
-- `/listrecurrent` - Lista mensagens ativas
-- `/monitor` - Inicia monitoramento de grupo
-- `/setadmin` - Adiciona administrador
-
-## 📊 Métricas de Produção (Atual)
-
-### **Performance ✅**
-- **Uptime**: 99.9% (container estável)
-- **Response Time**: < 500ms (média)
-- **Database**: MongoDB Atlas com 13 coleções ativas
-- **AI Calls**: Anthropic integration funcionando
-- **Memory Usage**: ~150MB (otimizado)
-
-### **Usage Statistics (Exemplo)**
-- **Active Groups**: Monitoramento ativo
-- **Daily Check-ins**: Sistema de pontuação funcionando
-- **AI Interactions**: Respostas contextuais ativas
-- **Recurring Messages**: 2 mensagens programadas ativas
-- **Admin Actions**: Logs completos disponíveis
-
-## 🛠️ Troubleshooting Produção
-
-### **Comandos Úteis**
-```bash
-# Status do container
-docker ps | grep gym-nation
-
 # Logs em tempo real
 docker logs gym-nation-bot-prod -f
 
-# Restart se necessário
-docker-compose -f docker-compose.prod.yml restart
+# Status do container
+docker ps | grep gym-nation
 
-# Verificar conexão Atlas
-docker exec gym-nation-bot-prod python -c "import os; print('Atlas Connected:', 'mongodb+srv' in os.getenv('MONGODB_CONNECTION_STRING', ''))"
+# Health check
+docker exec gym-nation-bot-prod python -c "print('Bot healthy')"
 ```
 
-### **Monitores de Saúde**
-- ✅ **Container Health**: Running stable
-- ✅ **Database Connection**: MongoDB Atlas connected
-- ✅ **AI API**: Anthropic responding
-- ✅ **Telegram API**: Bot online and responsive
-- ✅ **Recurring Tasks**: Messages being sent automatically
+## 📁 Estrutura do Projeto
 
-## 🚀 Próximos Passos (Roadmap)
+```
+bro-bot/
+├── src/                          # Código fonte
+│   ├── main.py                   # Entry point da aplicação
+│   ├── bot/                      # Módulos do bot
+│   │   ├── __init__.py
+│   │   ├── handlers.py           # Handlers gerais
+│   │   ├── checkin_handlers.py   # Sistema check-in
+│   │   ├── mention_handlers.py   # Respostas IA
+│   │   ├── blacklist_handlers.py # Moderação
+│   │   ├── messages.py           # Templates mensagens
+│   │   ├── motivation.py         # Sistema motivação
+│   │   └── fitness_qa.py         # Q&A fitness
+│   └── utils/                    # Utilitários
+│       ├── __init__.py
+│       ├── config.py             # Configurações
+│       ├── filters.py            # Filtros customizados
+│       ├── mongodb_client.py     # Cliente MongoDB
+│       ├── mongodb_instance.py   # Instância MongoDB
+│       ├── anthropic_client.py   # Cliente Anthropic
+│       └── recurring_messages_manager.py
+├── tests/                        # Testes automatizados
+│   ├── test_checkin_handlers.py
+│   ├── test_blacklist_handlers.py
+│   └── ...
+├── scripts/                      # Scripts utilitários
+│   ├── migrate_to_atlas.py       # Migração dados
+│   └── deploy.py                 # Deploy automatizado
+├── memory-bank/                  # Documentação Cursor
+├── docs/                         # Documentação adicional
+├── docker-compose.yml            # Config desenvolvimento
+├── docker-compose.prod.yml       # Config produção
+├── Dockerfile                    # Container config
+├── requirements.txt              # Dependências Python
+├── .env.example                  # Template configuração
+├── .dockerignore                 # Exclusões Docker
+├── .gitignore                    # Exclusões Git
+├── DEPLOY.md                     # Guia deployment
+└── README.md                     # Esta documentação
+```
 
-### **Phase 2 - Enhancements**
-1. **Advanced Analytics**: Dashboard de métricas da comunidade
-2. **Performance Optimization**: Baseado em dados de produção
-3. **User Feedback Integration**: Sistema de feedback integrado
-4. **Multi-language Support**: Expansão internacional
+## 🔧 Desenvolvimento
 
-### **Phase 3 - Scaling**
-1. **Load Balancing**: Preparação para alta demanda
-2. **Advanced Backup**: Sistema de backup robusto
-3. **API Integration**: Integrações com fitness apps
-4. **Mobile Dashboard**: Interface web administrativa
+### Configuração do Ambiente
+
+1. **Ambiente Virtual**
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # Linux/Mac
+   venv\Scripts\activate     # Windows
+   pip install -r requirements.txt
+   ```
+
+2. **MongoDB Local (Desenvolvimento)**
+   ```bash
+   # Com Docker
+   docker run -d -p 27017:27017 \
+     -e MONGO_INITDB_ROOT_USERNAME=admin \
+     -e MONGO_INITDB_ROOT_PASSWORD=password \
+     mongo:latest
+   ```
+
+### Executando Testes
+
+```bash
+# Todos os testes
+pytest
+
+# Testes específicos
+pytest tests/test_checkin_handlers.py
+
+# Com coverage
+pytest --cov=src tests/
+
+# Testes assíncronos
+pytest -v tests/test_async_handlers.py
+```
+
+### Desenvolvimento de Features
+
+1. **Novo Handler**
+   - Crie o handler em `src/bot/`
+   - Registre em `src/main.py`
+   - Adicione testes em `tests/`
+
+2. **Nova Funcionalidade MongoDB**
+   - Adicione métodos em `mongodb_client.py`
+   - Implemente tratamento de erros
+   - Crie testes unitários
+
+3. **Integração IA**
+   - Modifique `anthropic_client.py`
+   - Ajuste prompts em `fitness_qa.py`
+   - Teste com diferentes contextos
+
+### Padrões de Código
+
+- **Async/Await**: Use para operações MongoDB e API
+- **Error Handling**: Try/catch em todas operações críticas
+- **Logging**: Use logger estruturado
+- **Type Hints**: Documente tipos quando possível
+- **Docstrings**: Documente funções e classes
+
+## 🔌 API e Integrações
+
+### MongoDB Collections
+
+- `user_checkins`: Check-ins dos usuários
+- `checkin_anchors`: Âncoras de check-in ativas
+- `blacklist`: Lista negra de mensagens
+- `bot_admins`: Administradores do bot
+- `recurring_messages`: Mensagens automáticas
+- `monitored_chats`: Grupos monitorados
+- `qa_interactions`: Interações com IA
+- `qa_usage`: Uso diário da IA
+
+### Anthropic API
+
+```python
+# Exemplo de uso
+from src.utils.anthropic_client import AnthropicClient
+
+client = AnthropicClient(api_key="your_key")
+response = await client.generate_response(
+    prompt="Como melhorar resistência muscular?",
+    context="Usuário iniciante, treina 3x/semana"
+)
+```
+
+### Telegram Bot API
+
+- **Polling**: Busca ativa por mensagens
+- **Webhooks**: Não implementado (polling preferido)
+- **Rate Limits**: Respeitados automaticamente
+- **Error Recovery**: Sistema de retry implementado
+
+## 🤝 Contribuição
+
+### Como Contribuir
+
+1. **Fork** o repositório
+2. **Crie** uma branch para sua feature (`git checkout -b feature/nova-funcionalidade`)
+3. **Implemente** as mudanças com testes
+4. **Commit** suas mudanças (`git commit -am 'Adiciona nova funcionalidade'`)
+5. **Push** para a branch (`git push origin feature/nova-funcionalidade`)
+6. **Abra** um Pull Request
+
+### Guidelines
+
+- Mantenha o código bem documentado
+- Adicione testes para novas funcionalidades
+- Siga os padrões de código existentes
+- Atualize a documentação quando necessário
+- Teste localmente antes de submeter PR
+
+### Reportando Issues
+
+- Use templates de issue quando disponíveis
+- Inclua logs relevantes
+- Descreva passos para reproduzir
+- Especifique ambiente (OS, Python version, etc.)
 
 ---
 
-## 🏆 Conquista Alcançada
+## 📝 Licença
 
-**✅ DEPLOYMENT EM PRODUÇÃO COMPLETO E FUNCIONAL**
-- Bot operacional 24/7 desde junho 2025
-- Todas as funcionalidades core implementadas e testadas
-- Infrastructure otimizada para escalabilidade
-- Monitoring e observabilidade ativos
-- Zero downtime desde o deployment inicial
+Este projeto está sob licença MIT. Veja o arquivo [LICENSE](LICENSE) para mais detalhes.
+
+## 📞 Suporte
+
+- **Issues**: [GitHub Issues](https://github.com/seu-usuario/bro-bot/issues)
+- **Documentação**: [Wiki do projeto](https://github.com/seu-usuario/bro-bot/wiki)
+- **Email**: seu-email@exemplo.com
 
 ---
 
-*Última atualização: Junho 2025 - Produção Ativa* 🚀 
+*Desenvolvido com ❤️ para a comunidade GYM NATION* 
