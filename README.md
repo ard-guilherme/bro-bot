@@ -40,6 +40,16 @@ Um bot Telegram completo desenvolvido em Python para gerenciamento de comunidade
 - **Sistema de Feedback**: Usuários podem avaliar qualidade das respostas
 - **Controle de Uso**: Métricas e limitações de API
 
+### Correio Elegante 📬
+- **Mensagens Anônimas**: Envio de mensagens anônimas entre membros do grupo
+- **Sistema de Pagamento**: Revelação do remetente via Pix (R$ 2,00)
+- **Publicação Automática**: Agendador publica correios no grupo a cada hora
+- **Respostas Anônimas**: Destinatários podem responder anonimamente
+- **Moderação Inteligente**: Sistema de denúncias e expiração automática (24h)
+- **Filtros de Conteúdo**: Bloqueio automático de conteúdo ofensivo
+- **Limite Diário**: 2 correios por usuário por dia
+- **Validação de Membros**: Verifica se destinatário está no grupo
+
 ### Automação de Mensagens
 - **Mensagens Recorrentes**: Agendamento flexível (horas/dias)
 - **Edição em Tempo Real**: Modificação sem interrupção do serviço
@@ -201,6 +211,14 @@ Um bot Telegram completo desenvolvido em Python para gerenciamento de comunidade
 | `/regras` | Exibe regras do grupo | `/regras` |
 | `/apresentacao` | Apresentação do bot | `/apresentacao` |
 
+### Correio Elegante (Todos os Membros)
+
+| Comando | Descrição | Exemplo |
+|---------|-----------|---------|
+| `/correio` | Inicia envio de correio anônimo | `/correio` (apenas chat privado) |
+| `/revelarcorreio` | Revela remetente via Pix | `/revelarcorreio ID_MENSAGEM` |
+| `/respondercorreio` | Responde anonimamente | `/respondercorreio ID_MENSAGEM` |
+
 ### Sistema de Check-in
 
 | Comando | Descrição | Exemplo |
@@ -229,6 +247,7 @@ Um bot Telegram completo desenvolvido em Python para gerenciamento de comunidade
 | `/listadmins` | Lista admins | `/listadmins` |
 | `/monitor` | Monitora grupo | `/monitor` |
 | `/unmonitor` | Para monitoramento | `/unmonitor` |
+| `/admincorreio` | Administra correio elegante | `/admincorreio status` |
 
 ### Mensagens Recorrentes
 
@@ -243,6 +262,16 @@ Um bot Telegram completo desenvolvido em Python para gerenciamento de comunidade
 - **Menções**: Mencione o bot em qualquer mensagem para receber resposta contextual
 - **Rate Limit**: 2 perguntas por dia por usuário
 - **Feedback**: Reaja com 👍/👎 nas respostas para feedback
+
+### Fluxo do Correio Elegante
+
+1. **Envio**: Use `/correio` no chat privado com o bot
+2. **Composição**: Digite sua mensagem (10-500 caracteres)
+3. **Destinatário**: Informe o @ do destinatário (deve ser membro do grupo)
+4. **Confirmação**: Revise e confirme o envio
+5. **Publicação**: Mensagem é publicada automaticamente no grupo (até 1h)
+6. **Interação**: Membros podem revelar remetente (R$2) ou responder anonimamente
+7. **Expiração**: Correios expiram em 24h ou com 3+ denúncias
 
 ## 🚀 Deployment
 
@@ -302,6 +331,7 @@ bro-bot/
 │   │   ├── checkin_handlers.py   # Sistema check-in
 │   │   ├── mention_handlers.py   # Respostas IA
 │   │   ├── blacklist_handlers.py # Moderação
+│   │   ├── mail_handlers.py      # Correio elegante
 │   │   ├── messages.py           # Templates mensagens
 │   │   ├── motivation.py         # Sistema motivação
 │   │   └── fitness_qa.py         # Q&A fitness
@@ -312,6 +342,7 @@ bro-bot/
 │       ├── mongodb_client.py     # Cliente MongoDB
 │       ├── mongodb_instance.py   # Instância MongoDB
 │       ├── anthropic_client.py   # Cliente Anthropic
+│       ├── mail_scheduler.py     # Agendador correio
 │       └── recurring_messages_manager.py
 ├── tests/                        # Testes automatizados
 │   ├── test_checkin_handlers.py
@@ -407,6 +438,8 @@ pytest -v tests/test_async_handlers.py
 - `monitored_chats`: Grupos monitorados
 - `qa_interactions`: Interações com IA
 - `qa_usage`: Uso diário da IA
+- `correio_elegante`: Mensagens do correio elegante
+- `pix_payments`: Pagamentos Pix para revelações
 
 ### Anthropic API
 

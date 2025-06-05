@@ -18,7 +18,7 @@ from telegram.ext import (
     ContextTypes,
     CallbackQueryHandler
 )
-from telegram import BotCommand, BotCommandScopeAllGroupChats, BotCommandScopeDefault, BotCommandScopeAllChatAdministrators, Update
+from telegram import BotCommand, BotCommandScopeAllGroupChats, BotCommandScopeDefault, BotCommandScopeAllChatAdministrators, BotCommandScopeChat, Update
 from telegram.request import HTTPXRequest
 
 from src.utils.config import Config
@@ -44,7 +44,8 @@ from src.bot.handlers import (
     sayrecurrent_command,
     listrecurrent_command,
     delrecurrent_command,
-    rules_command
+    rules_command,
+    admin_correio_command
 )
 from src.bot.checkin_handlers import (
     checkin_command,
@@ -65,6 +66,11 @@ from src.bot.blacklist_handlers import (
     blacklist_button,
     ban_blacklist_command
 )
+from src.bot.mail_handlers import (
+    MailHandlers,
+    get_mail_conversation_handler,
+    get_reply_conversation_handler
+)
 
 # Configuração de logging
 logging.basicConfig(
@@ -75,19 +81,25 @@ logger = logging.getLogger(__name__)
 
 async def setup_commands(application: Application) -> None:
     """Configura os comandos do bot para aparecerem no menu de comandos do Telegram."""
-    commands = [
+    
+    # Comandos disponíveis para TODOS os usuários em chat privado
+    public_commands = [
         BotCommand("start", "Inicia o bot"),
         BotCommand("help", "Mostra a mensagem de ajuda"),
+        BotCommand("correio", "Envia um correio elegante anônimo"),
+                        BotCommand("revelarcorreio", "Revela o remetente de um correio (R$2)"),
+                BotCommand("respondercorreio", "Responde anonimamente a um correio"),
+                BotCommand("denunciarcorreio", "Denuncia um correio inadequado"),
+        BotCommand("checkinscore", "Mostra o ranking de check-ins dos usuários")
+    ]
+    
+    # Comandos adicionais para administradores do bot
+    admin_commands = public_commands + [
         BotCommand("motivacao", "Envia uma mensagem de motivação fitness"),
         BotCommand("fecho", "Envia uma tirada sarcástica e debochada com humor"),
         BotCommand("apresentacao", "Responde com uma apresentação personalizada"),
         BotCommand("macros", "Calcula macronutrientes de uma receita ou alimento"),
-        BotCommand("checkinscore", "Mostra o ranking de check-ins dos usuários"),
-        BotCommand("regras", "Mostra as regras do grupo GYM NATION")
-    ]
-    
-    # Comandos apenas para administradores
-    admin_commands = commands + [
+        BotCommand("regras", "Mostra as regras do grupo GYM NATION"),
         BotCommand("checkin", "Define uma mensagem como âncora de check-in (normal)"),
         BotCommand("checkinplus", "Define uma mensagem como âncora de check-in (PLUS x2)"),
         BotCommand("endcheckin", "Desativa o check-in atual"),
@@ -98,15 +110,28 @@ async def setup_commands(application: Application) -> None:
         BotCommand("ban_blacklist", "Bane usuários da blacklist e limpa entradas")
     ]
     
-    # Comandos apenas para o proprietário
+    # Comandos exclusivos do proprietário
     owner_commands = admin_commands + [
+        BotCommand("admincorreio", "Administração do correio elegante (Owner)"),
         BotCommand("setadmin", "Adiciona um usuário como administrador do bot"),
         BotCommand("deladmin", "Remove um usuário da lista de administradores do bot"),
-        BotCommand("listadmins", "Lista todos os administradores do bot")
+        BotCommand("listadmins", "Lista todos os administradores do bot"),
+        BotCommand("monitor", "Monitora um grupo"),
+        BotCommand("unmonitor", "Para de monitorar um grupo"),
+        BotCommand("say", "Envia uma mensagem como bot"),
+        BotCommand("sayrecurrent", "Configura mensagem recorrente"),
+        BotCommand("listrecurrent", "Lista mensagens recorrentes"),
+        BotCommand("delrecurrent", "Remove mensagem recorrente")
     ]
     
-    # Configura comandos para chats privados (proprietário)
-    await application.bot.set_my_commands(owner_commands, scope=BotCommandScopeDefault())
+    # Configura comandos para chat privado com o proprietário
+    await application.bot.set_my_commands(
+        owner_commands, 
+        scope=BotCommandScopeChat(chat_id=Config.get_owner_id())
+    )
+    
+    # Configura comandos padrão para todos os outros usuários em chat privado
+    await application.bot.set_my_commands(public_commands, scope=BotCommandScopeDefault())
     
     # Configura comandos apenas para administradores nos grupos
     await application.bot.set_my_commands(admin_commands, scope=BotCommandScopeAllChatAdministrators())
@@ -114,7 +139,7 @@ async def setup_commands(application: Application) -> None:
     # Remove comandos para membros comuns nos grupos
     await application.bot.delete_my_commands(scope=BotCommandScopeAllGroupChats())
     
-    logger.info("Comandos do bot configurados com sucesso: visíveis em chats privados e apenas para administradores nos grupos")
+    logger.info("Comandos do bot configurados: públicos para todos em chat privado, completos para proprietário, administrativos para admins nos grupos")
 
 async def main_async():
     """Função principal assíncrona para iniciar o bot."""
@@ -171,18 +196,24 @@ async def main_async():
             owner_filter = CustomFilters.owner_filter()
             only_owner_filter = CustomFilters.only_owner_filter()
             
-            # Adiciona handlers para comandos (apenas para o proprietário)
-            application.add_handler(CommandHandler("start", start_command, filters=owner_filter))
-            application.add_handler(CommandHandler("help", help_command, filters=owner_filter))
+            # Comandos públicos disponíveis para todos os usuários em chat privado
+            application.add_handler(CommandHandler("start", start_command, filters=filters.ChatType.PRIVATE))
+            application.add_handler(CommandHandler("help", help_command, filters=filters.ChatType.PRIVATE))
+            application.add_handler(CommandHandler("checkinscore", checkinscore_command, filters=filters.ChatType.PRIVATE))
+            
+            # Comandos restritos ao proprietário/administradores
             application.add_handler(CommandHandler("motivacao", motivation_command, filters=owner_filter))
             application.add_handler(CommandHandler("fecho", fecho_command, filters=owner_filter))
             application.add_handler(CommandHandler("apresentacao", presentation_command, filters=owner_filter))
             application.add_handler(CommandHandler("macros", macros_command, filters=owner_filter))
-            application.add_handler(CommandHandler("say", say_command, filters=owner_filter))
-            application.add_handler(CommandHandler("sayrecurrent", sayrecurrent_command, filters=owner_filter))
-            application.add_handler(CommandHandler("listrecurrent", listrecurrent_command, filters=owner_filter))
-            application.add_handler(CommandHandler("delrecurrent", delrecurrent_command, filters=owner_filter))
             application.add_handler(CommandHandler("regras", rules_command, filters=owner_filter))
+            
+            # Comandos exclusivos do proprietário
+            application.add_handler(CommandHandler("say", say_command, filters=only_owner_filter))
+            application.add_handler(CommandHandler("sayrecurrent", sayrecurrent_command, filters=only_owner_filter))
+            application.add_handler(CommandHandler("listrecurrent", listrecurrent_command, filters=only_owner_filter))
+            application.add_handler(CommandHandler("delrecurrent", delrecurrent_command, filters=only_owner_filter))
+            application.add_handler(CommandHandler("admincorreio", admin_correio_command, filters=only_owner_filter))
             
             # Adiciona handlers para comandos de check-in (apenas para o proprietário)
             application.add_handler(CommandHandler("checkin", checkin_command, filters=owner_filter))
@@ -201,6 +232,34 @@ async def main_async():
             application.add_handler(CallbackQueryHandler(
                 blacklist_button,
                 pattern=r'^rmblacklist_'
+            ))
+            
+            # Adiciona handlers para correio elegante
+            application.add_handler(get_mail_conversation_handler())
+            application.add_handler(get_reply_conversation_handler())
+            application.add_handler(CommandHandler("revelarcorreio", MailHandlers.revelar_correio_command))
+            application.add_handler(CommandHandler("denunciarcorreio", MailHandlers.denunciar_correio_command))
+            
+            # Adiciona handlers para botões do correio elegante
+            application.add_handler(CallbackQueryHandler(
+                MailHandlers.handle_mail_confirmation,
+                pattern=r'^mail_(confirm_|cancel)'
+            ))
+            application.add_handler(CallbackQueryHandler(
+                MailHandlers.handle_pix_confirmation,
+                pattern=r'^pix_confirm_'
+            ))
+            application.add_handler(CallbackQueryHandler(
+                MailHandlers.handle_mail_buttons,
+                pattern=r'^mail_(reveal_|reply_|report_)'
+            ))
+            
+
+            
+            # Handler para confirmação de PIX pelo proprietário
+            application.add_handler(CallbackQueryHandler(
+                MailHandlers.handle_mail_buttons,
+                pattern=r'^(owner_yes_|owner_no_)'
             ))
             
             # Adiciona handlers para comandos de administração (apenas para o proprietário do bot)
@@ -263,6 +322,10 @@ async def main_async():
             from src.utils.recurring_messages_manager import initialize_recurring_messages_manager
             recurring_messages_manager = initialize_recurring_messages_manager(application)
             await recurring_messages_manager.start()
+            
+            # Inicializa o agendador de correio elegante
+            from src.utils.mail_scheduler import start_mail_scheduler
+            await start_mail_scheduler(application.bot, interval_minutes=60)
             
             # Inicia o polling
             try:

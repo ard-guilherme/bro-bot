@@ -331,3 +331,49 @@ Onde X são os valores numéricos calculados. Não inclua nenhum texto adicional
 """
         )
         return os.getenv("MACROS_PROMPT", default_prompt)
+    
+    @staticmethod
+    def get_pix_key() -> str:
+        """
+        Obtém a chave Pix para pagamentos do correio elegante.
+        
+        Returns:
+            str: Chave Pix configurada.
+            
+        Raises:
+            ValueError: Se a chave Pix não estiver definida.
+        """
+        pix_key = os.getenv("PIX_KEY")
+        if not pix_key:
+            raise ValueError(
+                "Chave Pix não encontrada. "
+                "Defina a variável de ambiente PIX_KEY."
+            )
+        return pix_key
+    
+    @staticmethod
+    def get_gym_nation_group_name() -> str:
+        """
+        Obtém o nome do grupo GYM NATION.
+        
+        Returns:
+            str: Nome do grupo GYM NATION.
+        """
+        return os.getenv("GYM_NATION_GROUP_NAME", "GYM NATION")
+    
+    @staticmethod
+    def get_gym_nation_chat_id() -> Optional[int]:
+        """
+        Obtém o Chat ID do grupo GYM NATION.
+        
+        Returns:
+            Optional[int]: Chat ID do grupo GYM NATION ou None se não configurado.
+        """
+        chat_id = os.getenv("GYM_NATION_CHAT_ID")
+        if chat_id:
+            try:
+                return int(chat_id)
+            except ValueError:
+                logger.error(f"Chat ID inválido: {chat_id}. Deve ser um número inteiro.")
+                return None
+        return None

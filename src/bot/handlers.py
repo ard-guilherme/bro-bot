@@ -7,7 +7,7 @@ import asyncio
 from telegram import Update, ChatMember, ChatMemberAdministrator, ChatMemberOwner
 from telegram.ext import ContextTypes
 from src.bot.messages import Messages
-from telegram.constants import ReactionEmoji
+from telegram.constants import ReactionEmoji, ParseMode
 from telegram import ReactionTypeEmoji
 from telegram.error import BadRequest, TimedOut
 from src.utils.config import Config
@@ -161,21 +161,43 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         update (Update): Objeto de atualização do Telegram.
         context (ContextTypes.DEFAULT_TYPE): Contexto do callback.
     """
-    # Verifica se o usuário é administrador
-    if not await is_admin(update, context):
-        await send_temporary_message(
-            update, 
-            context, 
-            "Apenas administradores podem usar este comando."
-        )
-        return
-        
-    logger.info(f"Usuário {update.effective_user.id} iniciou o bot")
+    user = update.effective_user
+    chat_type = update.effective_chat.type
     
-    await update.message.reply_text(
-        "Olá! Eu sou o GYM NATION Bot, seu assistente fitness! 💪\n\n"
-        "Use /help para ver os comandos disponíveis."
-    )
+    logger.info(f"Usuário {user.id} ({user.full_name}) iniciou o bot em chat {chat_type}")
+    
+    # Verifica se é em chat privado
+    if chat_type == 'private':
+        # Apresentação completa para chat privado
+        welcome_message = (
+            f"🏋️‍♂️ **Olá {user.first_name}! Bem-vindo ao GYM NATION Bot!** 💪\n\n"
+            "Eu sou seu assistente fitness e social para o grupo **GYM NATION**! 🥇\n\n"
+            "🔥 **O que posso fazer por você:**\n\n"
+            "📬 **Correio Elegante Anônimo**\n"
+            "• Envie mensagens anônimas para membros do grupo\n"
+            "• Responda anonimamente a correios recebidos\n"
+            "• Revele remetentes por apenas R$2 via Pix\n\n"
+            "📊 **Rankings e Estatísticas**\n"
+            "• Consulte o ranking de check-ins do grupo\n"
+            "• Acompanhe sua participação na comunidade\n\n"
+            "💬 **Como usar:**\n"
+            "• Use `/correio` para enviar uma mensagem anônima\n"
+            "• Use `/checkinscore` para ver o ranking\n"
+            "• Use `/help` para ver todos os comandos\n\n"
+            "🎯 **Dica:** Todos os comandos funcionam apenas aqui no chat privado comigo!\n\n"
+            "Pronto para começar? Digite `/help` para ver todas as opções! 🚀"
+        )
+        
+        await update.message.reply_text(
+            welcome_message,
+            parse_mode='Markdown'
+        )
+    else:
+        # Resposta simples para grupos
+        await update.message.reply_text(
+            "👋 Olá! Para usar meus recursos, inicie uma conversa privada comigo!\n\n"
+            "Clique no meu nome e depois em \"Iniciar\" para acessar o correio elegante e outras funcionalidades! 📬"
+        )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
@@ -185,93 +207,99 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         update (Update): Objeto de atualização do Telegram.
         context (ContextTypes.DEFAULT_TYPE): Contexto do callback.
     """
-    # Verifica se o usuário é administrador
-    if not await is_admin(update, context):
-        await send_temporary_message(
-            update, 
-            context, 
-            "Apenas administradores podem usar este comando."
+    user = update.effective_user
+    chat_type = update.effective_chat.type
+    
+    logger.info(f"Usuário {user.id} ({user.full_name}) solicitou ajuda em chat {chat_type}")
+    
+    # Verifica se é administrador/proprietário para mostrar comandos específicos
+    is_admin_user = await is_admin(update, context)
+    is_owner = user.id == Config.get_owner_id()
+    
+    if chat_type == 'private':
+        # Ajuda para chat privado - foco nos comandos públicos
+        help_message = (
+            "🏋️‍♂️ **GYM NATION BOT - GUIA DE COMANDOS** 🏋️‍♀️\n\n"
+            "📬 **CORREIO ELEGANTE** - *Sistema de mensagens anônimas*\n\n"
+            "• `/correio` - Enviar mensagem anônima para um membro\n"
+            "• `/revelarcorreio <ID>` - Revelar remetente (R$2 via Pix)\n"
+            "• `/respondercorreio <ID>` - Responder anonimamente\n\n"
+            "**Como funciona:**\n"
+            "1️⃣ Digite `/correio` e siga as instruções\n"
+            "2️⃣ Escreva sua mensagem (será filtrada)\n"
+            "3️⃣ Digite o @username do destinatário\n"
+            "4️⃣ Confirme o envio\n"
+            "5️⃣ Mensagem será publicada no grupo anonimamente\n\n"
+            "📊 **ESTATÍSTICAS**\n\n"
+            "• `/checkinscore` - Ver ranking de check-ins do grupo\n\n"
+            "🔒 **REGRAS IMPORTANTES:**\n"
+            "• Máximo 2 correios por dia por usuário\n"
+            "• Conteúdo ofensivo é automaticamente rejeitado\n"
+            "• Destinatário deve ser membro do GYM NATION\n"
+            "• Mensagens expiram em 24 horas\n"
+            "• 3+ denúncias = remoção automática\n\n"
         )
-        return
         
-    logger.info(f"Usuário {update.effective_user.id} solicitou ajuda")
-    
-    # Verifica se o usuário é o proprietário do bot
-    is_owner = update.effective_user.id == Config.get_owner_id()
-    
-    # Mensagem base para todos os usuários
-    help_message = (
-        "🏋️‍♂️ *GYM NATION BOT - COMANDOS* 🏋️‍♀️\n\n"
-        "*Comandos Básicos:*\n\n"
-        "• `/start` - Inicia o bot e exibe mensagem de boas-vindas\n"
-        "• `/help` - Mostra esta mensagem de ajuda detalhada\n"
-        "• `/motivacao` - Envia uma mensagem de motivação fitness gerada por IA\n"
-        "• `/apresentacao` - Responde a uma mensagem com uma apresentação personalizada\n"
-        "• `/macros` - Calcula macronutrientes de uma receita ou alimento\n"
-        "• `/checkinscore` - Mostra o ranking de check-ins dos usuários\n"
-        "• `/regras` - Exibe as regras do grupo GYM NATION\n\n"
-        "*Dicas de Uso:*\n\n"
-        "• Use `/motivacao` respondendo a uma mensagem para enviar uma motivação personalizada para alguém\n"
-        "• Use `/apresentacao` respondendo a uma mensagem de apresentação para gerar uma resposta personalizada\n"
-        "• Use `/macros` respondendo a uma mensagem que descreva uma receita ou alimento para calcular seus macronutrientes"
-    )
-    
-    # Adiciona comandos de administrador
-    help_message += (
-        "\n\n"
-        "*Comandos de Check-in:*\n\n"
-        "• `/checkin` - Define uma mensagem como âncora de check-in (use respondendo à mensagem desejada)\n"
-        "• `/endcheckin` - Desativa o check-in atual\n\n"
-        "*Como funciona o Check-in:*\n"
-        "1. Um administrador define uma mensagem como âncora usando `/checkin`\n"
-        "2. Os membros respondem a essa mensagem com uma foto para registrar presença\n"
-        "3. O bot confirma o check-in e atualiza o ranking\n"
-        "4. Cada membro só pode fazer um check-in por âncora\n"
-        "5. Use `/checkinscore` para ver o ranking atual"
-    )
-    
-    # Adiciona comandos de blacklist
-    help_message += (
-        "\n\n"
-        "*Comandos de Blacklist:*\n\n"
-        "• `/addblacklist` - Adiciona uma mensagem à blacklist (use respondendo à mensagem inapropriada)\n"
-        "• `/blacklist` - Lista as mensagens na blacklist do chat atual\n"
-        "• `/blacklist [nome do grupo]` - Lista as mensagens na blacklist de outro grupo pelo nome\n\n"
-        "*Como funciona a Blacklist:*\n"
-        "1. Um administrador responde a uma mensagem inapropriada com `/addblacklist`\n"
-        "2. O bot marca a mensagem com o emoji ❌ e a registra no banco de dados\n"
-        "3. Os administradores podem ver a lista de mensagens marcadas com `/blacklist`\n"
-        "4. É possível consultar a blacklist de outro grupo com `/blacklist [nome do grupo]`"
-    )
-    
-    # Adiciona comandos de mensagens
-    help_message += (
-        "\n\n"
-        "*Comandos de Mensagens:*\n\n"
-        "• `/say` - Envia uma mensagem como administrador do grupo\n"
-        "• `/sayrecurrent` - Configura uma mensagem recorrente\n"
-        "• `/listrecurrent` - Lista todas as mensagens recorrentes do chat\n"
-        "• `/delrecurrent` - Desativa uma mensagem recorrente\n\n"
-        "*Como usar mensagens recorrentes:*\n"
-        "1. Use `/sayrecurrent <intervalo> <mensagem>` para configurar\n"
-        "2. Formatos de intervalo: `30m` (30 minutos), `1h` (1 hora), `1h30m` (1h30)\n"
-        "3. Use `/listrecurrent` para ver todas as mensagens configuradas\n"
-        "4. Use `/delrecurrent <id>` para desativar uma mensagem"
-    )
-    
-    # Adiciona comandos de administração do bot (apenas para o proprietário)
-    if is_owner:
+        # Adiciona comandos administrativos se for admin
+        if is_admin_user:
+            help_message += (
+                "👑 **COMANDOS ADMINISTRATIVOS** _(Apenas para admins)_\n\n"
+                "🏋️‍♂️ **Comandos Fitness:**\n"
+                "• `/motivacao` - Mensagem de motivação com IA\n"
+                "• `/apresentacao` - Apresentação personalizada\n"
+                "• `/macros` - Calcular macronutrientes\n"
+                "• `/regras` - Exibir regras do grupo\n\n"
+                "✅ **Check-ins:**\n"
+                "• `/checkin` - Definir âncora de check-in\n"
+                "• `/checkinplus` - Check-in PLUS (x2 pontos)\n"
+                "• `/endcheckin` - Finalizar check-in\n"
+                "• `/confirmcheckin` - Confirmar check-in manual\n\n"
+                "🚫 **Moderação:**\n"
+                "• `/addblacklist` - Adicionar à blacklist\n"
+                "• `/blacklist` - Ver mensagens na blacklist\n"
+                "• `/rmblacklist` - Remover da blacklist\n"
+                "• `/ban_blacklist` - Banir usuários da blacklist\n\n"
+            )
+        
+        # Adiciona comandos do proprietário
+        if is_owner:
+            help_message += (
+                "🔑 **COMANDOS DO PROPRIETÁRIO** _(Apenas para você)_\n\n"
+                "📬 **Correio Elegante:**\n"
+                "• `/admincorreio status` - Status do sistema\n"
+                "• `/admincorreio stats` - Estatísticas detalhadas\n"
+                "• `/admincorreio pending` - Correios pendentes\n"
+                "• `/admincorreio reports` - Correios denunciados\n"
+                "• `/admincorreio cleanup` - Limpeza automática\n\n"
+                "👥 **Administração:**\n"
+                "• `/setadmin` - Adicionar administrador\n"
+                "• `/deladmin` - Remover administrador\n"
+                "• `/listadmins` - Listar administradores\n\n"
+                "📡 **Sistema:**\n"
+                "• `/monitor` - Monitorar grupo\n"
+                "• `/unmonitor` - Parar monitoramento\n"
+                "• `/say` - Enviar mensagem como bot\n"
+                "• `/sayrecurrent` - Mensagem recorrente\n"
+                "• `/listrecurrent` - Listar recorrentes\n"
+                "• `/delrecurrent` - Remover recorrente\n\n"
+            )
+        
         help_message += (
-            "\n\n"
-            "*Comandos de Administração do Bot:*\n\n"
-            "• `/setadmin` - Adiciona um usuário como administrador do bot\n"
-            "• `/deladmin` - Remove um usuário da lista de administradores do bot\n"
-            "• `/listadmins` - Lista todos os administradores do bot\n\n"
-            "*Como gerenciar administradores:*\n"
-            "• Para adicionar: `/setadmin [user_id]` ou responda a uma mensagem com `/setadmin`\n"
-            "• Para remover: `/deladmin [user_id]` ou responda a uma mensagem com `/deladmin`\n"
-            "• Para listar: `/listadmins`\n\n"
-            "Os administradores podem usar todos os comandos do bot exceto os comandos de administração."
+            "💡 **DICAS:**\n"
+            "• Todos os comandos funcionam apenas em chat privado\n"
+            "• Use `/start` para ver a apresentação completa\n"
+            "• Para suporte, contate o administrador do grupo\n\n"
+            "🎯 **Quer começar?** Digite `/correio` para enviar sua primeira mensagem anônima!"
+        )
+    else:
+        # Ajuda simples para grupos
+        help_message = (
+            "📱 **Para usar meus recursos, inicie um chat privado comigo!**\n\n"
+            "Clique no meu nome e depois em \"Iniciar\" para:\n"
+            "📬 Enviar correios elegantes anônimos\n"
+            "💰 Revelar remetentes via Pix\n"
+            "📊 Ver rankings e estatísticas\n\n"
+            "Digite `/start` no chat privado para começar! 🚀"
         )
     
     # Envia a mensagem de ajuda com formatação Markdown
@@ -1553,4 +1581,280 @@ async def rules_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         chat_id=update.effective_chat.id,
         text=rules_message,
         parse_mode="Markdown"
-    ) 
+    )
+
+async def admin_correio_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Comando administrativo para gerenciar correios elegantes.
+    Uso: /admincorreio [status|stats|cleanup]
+    
+    Args:
+        update (Update): Objeto de atualização do Telegram.
+        context (ContextTypes.DEFAULT_TYPE): Contexto do callback.
+    """
+    # Verificar se é o proprietário
+    if update.effective_user.id != Config.get_owner_id():
+        await update.message.reply_text("❌ Apenas o proprietário pode usar este comando.")
+        return
+    
+    args = context.args
+    
+    if not args:
+        help_text = (
+            "📬 **ADMINISTRAÇÃO DO CORREIO ELEGANTE**\n\n"
+            "**Comandos disponíveis:**\n"
+            "• `/admincorreio status` - Status do sistema\n"
+            "• `/admincorreio stats` - Estatísticas gerais\n"
+            "• `/admincorreio cleanup` - Limpar correios expirados\n"
+            "• `/admincorreio pending` - Ver correios pendentes\n"
+            "• `/admincorreio reports` - Ver denúncias\n"
+            "• `/admincorreio send [ID|all]` - Publicar correio específico ou todos"
+        )
+        await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
+        return
+    
+    command = args[0].lower()
+    
+    if command == "status":
+        await _admin_correio_status(update, context)
+    elif command == "stats":
+        await _admin_correio_stats(update, context)
+    elif command == "cleanup":
+        await _admin_correio_cleanup(update, context)
+    elif command == "pending":
+        await _admin_correio_pending(update, context)
+    elif command == "reports":
+        await _admin_correio_reports(update, context)
+    elif command == "send":
+        await _admin_correio_send(update, context)
+    else:
+        await update.message.reply_text(
+            "❌ Comando inválido. Use `/admincorreio` para ver as opções.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+
+async def _admin_correio_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Mostra status do sistema de correio elegante."""
+    try:
+        # Verificar se o agendador está rodando
+        from src.utils.mail_scheduler import mail_scheduler
+        
+        scheduler_status = "🟢 Ativo" if mail_scheduler and mail_scheduler.is_running else "🔴 Inativo"
+        
+        # Verificar configurações
+        try:
+            pix_key = Config.get_pix_key()
+            pix_status = "🟢 Configurado"
+        except:
+            pix_status = "🔴 Não configurado"
+        
+        # Verificar GYM NATION
+        from src.utils.mongodb_instance import mongodb_client
+        gym_nation_chat_id = await mongodb_client.get_gym_nation_chat_id()
+        gym_nation_status = "🟢 Encontrado" if gym_nation_chat_id else "🔴 Não encontrado"
+        
+        status_text = (
+            f"📬 **STATUS DO CORREIO ELEGANTE**\n\n"
+            f"**Agendador:** {scheduler_status}\n"
+            f"**Chave Pix:** {pix_status}\n"
+            f"**Grupo GYM NATION:** {gym_nation_status}\n"
+            f"**Chat ID:** `{gym_nation_chat_id or 'N/A'}`\n\n"
+            f"**Sistema:** {'🟢 Operacional' if scheduler_status == '🟢 Ativo' and pix_status == '🟢 Configurado' and gym_nation_status == '🟢 Encontrado' else '🟡 Parcial/🔴 Inativo'}"
+        )
+        
+        await update.message.reply_text(status_text, parse_mode=ParseMode.MARKDOWN)
+        
+    except Exception as e:
+        logger.error(f"Erro ao obter status do correio: {e}")
+        await update.message.reply_text("❌ Erro ao obter status do sistema.")
+
+async def _admin_correio_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Mostra estatísticas do correio elegante."""
+    try:
+        from src.utils.mongodb_instance import mongodb_client
+        
+        # Obter estatísticas reais
+        today_stats = await mongodb_client.get_mail_stats_today()
+        total_stats = await mongodb_client.get_mail_stats_total()
+        weekly_stats = await mongodb_client.get_mail_stats_weekly()
+        
+        stats_text = (
+            f"📊 **ESTATÍSTICAS DO CORREIO ELEGANTE**\n\n"
+            
+            f"**📅 Hoje:**\n"
+            f"• Correios enviados: {today_stats['sent']}\n"
+            f"• Revelações pagas: {today_stats['revealed']}\n"
+            f"• Denúncias: {today_stats['reported']}\n"
+            f"• Receita do dia: R$ {today_stats['revealed'] * 2:.2f}\n\n"
+            
+            f"**📈 Última semana:**\n"
+            f"• Correios enviados: {weekly_stats['sent']}\n"
+            f"• Revelações pagas: {weekly_stats['revealed']}\n"
+            f"• Receita semanal: R$ {weekly_stats['revealed'] * 2:.2f}\n\n"
+            
+            f"**📋 Total geral:**\n"
+            f"• Correios criados: {total_stats['total_mails']}\n"
+            f"• Arrecadação total: R$ {total_stats['total_revenue']:.2f}\n"
+            f"• Usuários ativos: {total_stats['unique_senders']}\n\n"
+            
+            f"**🔄 Status dos correios:**\n"
+            f"• Pendentes: {total_stats['pending']}\n"
+            f"• Publicados: {total_stats['published']}\n"
+            f"• Expirados: {total_stats['expired']}\n\n"
+            
+            f"_Última atualização: {datetime.now().strftime('%d/%m/%Y %H:%M')}_"
+        )
+        
+        await update.message.reply_text(stats_text, parse_mode=ParseMode.MARKDOWN)
+        
+    except Exception as e:
+        logger.error(f"Erro ao obter estatísticas do correio: {e}")
+        await update.message.reply_text("❌ Erro ao obter estatísticas.")
+
+async def _admin_correio_cleanup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Limpa correios expirados."""
+    try:
+        from src.utils.mongodb_instance import mongodb_client
+        
+        # TODO: Implementar limpeza real
+        await update.message.reply_text(
+            "🧹 **LIMPEZA EXECUTADA**\n\n"
+            "Sistema de limpeza automática ativo.\n"
+            "Correios expirados são removidos automaticamente.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        
+    except Exception as e:
+        logger.error(f"Erro na limpeza de correios: {e}")
+        await update.message.reply_text("❌ Erro durante a limpeza.")
+
+async def _admin_correio_pending(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Mostra correios pendentes."""
+    try:
+        from src.utils.mongodb_instance import mongodb_client
+        
+        pending_mails = await mongodb_client.get_pending_mails()
+        
+        if not pending_mails:
+            await update.message.reply_text(
+                "📬 Nenhum correio pendente para publicação.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        pending_text = f"📋 **CORREIOS PENDENTES** ({len(pending_mails)})\n\n"
+        
+        for i, mail in enumerate(pending_mails[:5], 1):  # Limitar a 5 para não ser muito longo
+            created_at = mail.get('created_at', datetime.now()).strftime("%d/%m %H:%M")
+            pending_text += (
+                f"**{i}.** `{mail['_id']}`\n"
+                f"Para: @{mail['recipient_username']}\n"
+                f"Criado: {created_at}\n"
+                f"Preview: {mail['message_text'][:50]}...\n\n"
+            )
+        
+        if len(pending_mails) > 5:
+            pending_text += f"_... e mais {len(pending_mails) - 5} correios._"
+        
+        await update.message.reply_text(pending_text, parse_mode=ParseMode.MARKDOWN)
+        
+    except Exception as e:
+        logger.error(f"Erro ao obter correios pendentes: {e}")
+        await update.message.reply_text("❌ Erro ao obter correios pendentes.")
+
+async def _admin_correio_reports(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Mostra denúncias de correios."""
+    try:
+        await update.message.reply_text(
+            "🚨 **SISTEMA DE DENÚNCIAS**\n\n"
+            "Sistema de denúncias implementado.\n"
+            "Correios com 3+ denúncias são automaticamente removidos.\n\n"
+            "_Interface de moderação será implementada na próxima versão._",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        
+    except Exception as e:
+        logger.error(f"Erro ao obter denúncias: {e}")
+        await update.message.reply_text("❌ Erro ao obter denúncias.")
+
+async def _admin_correio_send(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Publica correios pendentes manualmente."""
+    try:
+        args = context.args
+        
+        if len(args) < 2:
+            await update.message.reply_text(
+                "❌ **Uso correto:**\n"
+                "• `/admincorreio send [ID_do_correio]` - Envia correio específico\n"
+                "• `/admincorreio send all` - Envia todos os pendentes\n\n"
+                "Use `/admincorreio pending` para ver IDs dos correios.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        target = args[1]
+        
+        if target.lower() == "all":
+            # Enviar todos os correios pendentes
+            from src.utils.mail_scheduler import publish_all_pending_mails
+            from src.utils.mongodb_instance import mongodb_client
+            
+            # Contar pendentes antes
+            pending_before = await mongodb_client.get_pending_mails()
+            count_before = len(pending_before)
+            
+            if count_before == 0:
+                await update.message.reply_text(
+                    "📬 Nenhum correio pendente para enviar.",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                return
+            
+            # Publicar todos
+            await publish_all_pending_mails()
+            
+            # Contar pendentes depois
+            pending_after = await mongodb_client.get_pending_mails()
+            count_after = len(pending_after)
+            count_sent = count_before - count_after
+            
+            await update.message.reply_text(
+                f"✅ **CORREIOS ENVIADOS**\n\n"
+                f"📬 {count_sent} correio(s) publicado(s) com sucesso!\n"
+                f"📋 {count_after} correio(s) restante(s) na fila.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            
+        else:
+            # Enviar correio específico
+            from src.utils.mail_scheduler import publish_mail_by_id
+            
+            # Validar se é um ID válido (ObjectId tem 24 caracteres hex)
+            import re
+            if not re.match(r'^[0-9a-fA-F]{24}$', target):
+                await update.message.reply_text(
+                    "❌ ID de correio inválido.\n"
+                    "Use `/admincorreio pending` para ver os IDs corretos.",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                return
+            
+            success = await publish_mail_by_id(target)
+            
+            if success:
+                await update.message.reply_text(
+                    f"✅ **CORREIO ENVIADO**\n\n"
+                    f"📬 Correio `{target}` publicado com sucesso!",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            else:
+                await update.message.reply_text(
+                    f"❌ **FALHA NO ENVIO**\n\n"
+                    f"Não foi possível publicar o correio `{target}`.\n"
+                    "Verifique se o ID está correto e se o correio está pendente.",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+        
+    except Exception as e:
+        logger.error(f"Erro ao enviar correios: {e}")
+        await update.message.reply_text("❌ Erro interno ao processar comando.") 

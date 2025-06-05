@@ -4,7 +4,7 @@ Cliente para o MongoDB.
 import os
 import logging
 from typing import Dict, List, Optional, Any, Union
-from datetime import datetime
+from datetime import datetime, timedelta
 import motor.motor_asyncio
 from pymongo.errors import PyMongoError
 import re
@@ -1398,3 +1398,521 @@ class MongoDBClient:
         except Exception as e:
             logger.error(f"Erro inesperado ao remover itens da blacklist por IDs: {e}")
             return 0
+
+    # Métodos para Correio Elegante
+    
+    async def create_mail(self, sender_id: int, sender_name: str, recipient_username: str, message_text: str) -> Optional[str]:
+        """
+        Cria uma nova mensagem de correio elegante.
+        
+        Args:
+            sender_id (int): ID do remetente.
+            sender_name (str): Nome do remetente.
+            recipient_username (str): Username do destinatário (sem @).
+            message_text (str): Texto da mensagem.
+            
+        Returns:
+            Optional[str]: ID da mensagem criada ou None em caso de erro.
+        """
+        try:
+            mail_data = {
+                "sender_id": sender_id,
+                "sender_name": sender_name,
+                "recipient_username": recipient_username,
+                "message_text": message_text,
+                "status": "pending",  # pending, published, expired
+                "created_at": datetime.now(),
+                "published_at": None,
+                "expires_at": None,
+                "revealed_to": [],  # Lista de user_ids que revelaram o remetente
+                "reported_by": [],  # Lista de user_ids que denunciaram
+                "replies": []  # Lista de respostas anônimas
+            }
+            
+            result = await self.db.correio_elegante.insert_one(mail_data)
+            
+            if result.acknowledged:
+                logger.info(f"Correio criado: ID {result.inserted_id}")
+                return str(result.inserted_id)
+            
+            return None
+            
+        except PyMongoError as e:
+            logger.error(f"Erro ao criar correio: {e}")
+            return None
+    
+    async def get_daily_mail_count(self, user_id: int) -> int:
+        """
+        Obtém o número de correios enviados pelo usuário hoje.
+        
+        Args:
+            user_id (int): ID do usuário.
+            
+        Returns:
+            int: Número de correios enviados hoje.
+        """
+        try:
+            # Início e fim do dia atual
+            today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            today_end = today_start + timedelta(days=1)
+            
+            count = await self.db.correio_elegante.count_documents({
+                "sender_id": user_id,
+                "created_at": {
+                    "$gte": today_start,
+                    "$lt": today_end
+                }
+            })
+            
+            return count
+            
+        except PyMongoError as e:
+            logger.error(f"Erro ao obter contagem diária de correios: {e}")
+            return 0
+    
+    async def get_pending_mails(self) -> List[Dict[str, Any]]:
+        """
+        Obtém todos os correios pendentes para publicação.
+        
+        Returns:
+            List[Dict[str, Any]]: Lista de correios pendentes.
+        """
+        try:
+            cursor = self.db.correio_elegante.find({"status": "pending"})
+            mails = await cursor.to_list(length=None)
+            return mails
+            
+        except PyMongoError as e:
+            logger.error(f"Erro ao obter correios pendentes: {e}")
+            return []
+    
+    async def publish_mail(self, mail_id: str, published_message_id: int) -> bool:
+        """
+        Marca um correio como publicado.
+        
+        Args:
+            mail_id (str): ID do correio.
+            published_message_id (int): ID da mensagem publicada no grupo.
+            
+        Returns:
+            bool: True se atualizado com sucesso.
+        """
+        try:
+            # Define expiração para 24 horas após publicação
+            expires_at = datetime.now() + timedelta(hours=24)
+            
+            result = await self.db.correio_elegante.update_one(
+                {"_id": ObjectId(mail_id)},
+                {
+                    "$set": {
+                        "status": "published",
+                        "published_at": datetime.now(),
+                        "published_message_id": published_message_id,
+                        "expires_at": expires_at
+                    }
+                }
+            )
+            
+            return result.modified_count > 0
+            
+        except PyMongoError as e:
+            logger.error(f"Erro ao marcar correio como publicado: {e}")
+            return False
+    
+    async def get_mail_by_id(self, mail_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Obtém um correio pelo ID.
+        
+        Args:
+            mail_id (str): ID do correio.
+            
+        Returns:
+            Optional[Dict[str, Any]]: Dados do correio ou None se não encontrado.
+        """
+        try:
+            mail = await self.db.correio_elegante.find_one({"_id": ObjectId(mail_id)})
+            
+            # Verificar se não expirou
+            if mail and mail.get("expires_at") and mail["expires_at"] < datetime.now():
+                # Marcar como expirado
+                await self.db.correio_elegante.update_one(
+                    {"_id": ObjectId(mail_id)},
+                    {"$set": {"status": "expired"}}
+                )
+                return None
+            
+            return mail
+            
+        except PyMongoError as e:
+            logger.error(f"Erro ao obter correio por ID: {e}")
+            return None
+    
+    async def reveal_mail(self, mail_id: str, user_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Marca que um usuário revelou o remetente de um correio.
+        
+        Args:
+            mail_id (str): ID do correio.
+            user_id (int): ID do usuário que revelou.
+            
+        Returns:
+            Optional[Dict[str, Any]]: Dados do correio revelado ou None.
+        """
+        try:
+            # Adicionar user_id à lista de quem revelou
+            result = await self.db.correio_elegante.update_one(
+                {"_id": ObjectId(mail_id)},
+                {"$addToSet": {"revealed_to": user_id}}
+            )
+            
+            if result.modified_count > 0:
+                # Retornar dados do correio
+                return await self.get_mail_by_id(mail_id)
+            
+            return None
+            
+        except PyMongoError as e:
+            logger.error(f"Erro ao revelar correio: {e}")
+            return None
+    
+    async def report_mail(self, mail_id: str, user_id: int, user_name: str) -> bool:
+        """
+        Registra denúncia de um correio.
+        
+        Args:
+            mail_id (str): ID do correio.
+            user_id (int): ID do usuário que denunciou.
+            user_name (str): Nome do usuário que denunciou.
+            
+        Returns:
+            bool: True se denúncia registrada com sucesso.
+        """
+        try:
+            report_data = {
+                "user_id": user_id,
+                "user_name": user_name,
+                "reported_at": datetime.now()
+            }
+            
+            result = await self.db.correio_elegante.update_one(
+                {"_id": ObjectId(mail_id)},
+                {"$addToSet": {"reported_by": report_data}}
+            )
+            
+            # Se chegou a 3 denúncias, marcar como expirado
+            mail = await self.get_mail_by_id(mail_id)
+            if mail and len(mail.get("reported_by", [])) >= 3:
+                await self.db.correio_elegante.update_one(
+                    {"_id": ObjectId(mail_id)},
+                    {"$set": {"status": "expired"}}
+                )
+            
+            return result.modified_count > 0
+            
+        except PyMongoError as e:
+            logger.error(f"Erro ao registrar denúncia de correio: {e}")
+            return False
+    
+    async def send_mail_reply(self, mail_id: str, reply_text: str, sender_id: int, sender_name: str) -> bool:
+        """
+        Envia resposta anônima para um correio.
+        
+        Args:
+            mail_id (str): ID do correio original.
+            reply_text (str): Texto da resposta.
+            sender_id (int): ID de quem está respondendo.
+            sender_name (str): Nome de quem está respondendo.
+            
+        Returns:
+            bool: True se resposta enviada com sucesso.
+        """
+        try:
+            reply_data = {
+                "reply_text": reply_text,
+                "sender_id": sender_id,
+                "sender_name": sender_name,
+                "sent_at": datetime.now()
+            }
+            
+            result = await self.db.correio_elegante.update_one(
+                {"_id": ObjectId(mail_id)},
+                {"$push": {"replies": reply_data}}
+            )
+            
+            return result.modified_count > 0
+            
+        except PyMongoError as e:
+            logger.error(f"Erro ao enviar resposta de correio: {e}")
+            return False
+    
+    async def get_gym_nation_chat_id(self) -> Optional[int]:
+        """
+        Obtém o chat_id do grupo GYM NATION.
+        
+        Returns:
+            Optional[int]: Chat ID do grupo GYM NATION ou None se não encontrado.
+        """
+        try:
+            # Primeiro, tentar usar o Chat ID configurado no .env
+            from src.utils.config import Config
+            
+            configured_chat_id = Config.get_gym_nation_chat_id()
+            if configured_chat_id:
+                logger.info(f"Usando Chat ID configurado: {configured_chat_id}")
+                return configured_chat_id
+            
+            # Fallback: Buscar pelo título "GYM NATION" (case insensitive)
+            gym_nation = await self.db.monitored_chats.find_one({
+                "title": {"$regex": "^GYM NATION.*$", "$options": "i"},
+                "active": True
+            })
+            
+            if gym_nation:
+                logger.info(f"Chat ID encontrado via MongoDB: {gym_nation.get('chat_id')}")
+                return gym_nation.get("chat_id")
+            
+            logger.warning("Chat ID do GYM NATION não encontrado. Configure GYM_NATION_CHAT_ID no .env")
+            return None
+            
+        except PyMongoError as e:
+            logger.error(f"Erro ao obter chat_id do GYM NATION: {e}")
+            return None
+    
+    # Métodos para pagamento Pix
+    
+    async def create_pix_payment(self, pix_id: str, user_id: int, mail_id: str, amount: float, pix_key: str) -> bool:
+        """
+        Cria um registro de pagamento Pix.
+        
+        Args:
+            pix_id (str): ID único do pagamento.
+            user_id (int): ID do usuário que vai pagar.
+            mail_id (str): ID do correio a ser revelado.
+            amount (float): Valor do pagamento.
+            pix_key (str): Chave Pix para pagamento.
+            
+        Returns:
+            bool: True se criado com sucesso.
+        """
+        try:
+            payment_data = {
+                "pix_id": pix_id,
+                "user_id": user_id,
+                "mail_id": mail_id,
+                "amount": amount,
+                "pix_key": pix_key,
+                "status": "pending",  # pending, confirmed, expired
+                "created_at": datetime.now(),
+                "expires_at": datetime.now() + timedelta(minutes=30),
+                "confirmed_at": None
+            }
+            
+            result = await self.db.pix_payments.insert_one(payment_data)
+            return result.acknowledged
+            
+        except PyMongoError as e:
+            logger.error(f"Erro ao criar pagamento Pix: {e}")
+            return False
+    
+    async def get_pix_payment(self, pix_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Obtém dados de um pagamento Pix.
+        
+        Args:
+            pix_id (str): ID do pagamento Pix.
+            
+        Returns:
+            Optional[Dict[str, Any]]: Dados do pagamento ou None se não encontrado.
+        """
+        try:
+            payment = await self.db.pix_payments.find_one({"pix_id": pix_id})
+            
+            # Verificar se não expirou
+            if payment and payment.get("expires_at") and payment["expires_at"] < datetime.now():
+                # Marcar como expirado
+                await self.db.pix_payments.update_one(
+                    {"pix_id": pix_id},
+                    {"$set": {"status": "expired"}}
+                )
+                return None
+            
+            return payment
+            
+        except PyMongoError as e:
+            logger.error(f"Erro ao obter pagamento Pix: {e}")
+            return None
+    
+    async def confirm_pix_payment(self, pix_id: str, user_id: int) -> bool:
+        """
+        Confirma um pagamento Pix.
+        
+        Args:
+            pix_id (str): ID do pagamento Pix.
+            user_id (int): ID do usuário que confirmou.
+            
+        Returns:
+            bool: True se confirmado com sucesso.
+        """
+        try:
+            result = await self.db.pix_payments.update_one(
+                {
+                    "pix_id": pix_id,
+                    "user_id": user_id,
+                    "status": {"$in": ["pending", "awaiting_confirmation"]}
+                },
+                {
+                    "$set": {
+                        "status": "confirmed",
+                        "confirmed_at": datetime.now()
+                    }
+                }
+            )
+            
+            return result.modified_count > 0
+            
+        except PyMongoError as e:
+            logger.error(f"Erro ao confirmar pagamento Pix: {e}")
+            return False
+
+    # Métodos para estatísticas do correio elegante
+    
+    async def get_mail_stats_today(self) -> Dict[str, int]:
+        """
+        Obtém estatísticas de correio elegante do dia atual.
+        
+        Returns:
+            Dict[str, int]: Estatísticas do dia (sent, revealed, reported).
+        """
+        try:
+            # Início e fim do dia atual
+            today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            today_end = today_start + timedelta(days=1)
+            
+            # Correios enviados hoje
+            mails_sent_today = await self.db.correio_elegante.count_documents({
+                "created_at": {
+                    "$gte": today_start,
+                    "$lt": today_end
+                }
+            })
+            
+            # Revelações pagas hoje
+            revelations_today = await self.db.pix_payments.count_documents({
+                "created_at": {
+                    "$gte": today_start,
+                    "$lt": today_end
+                },
+                "status": "confirmed"
+            })
+            
+            # Denúncias hoje
+            reports_today = 0
+            cursor = self.db.correio_elegante.find({
+                "reported_by.reported_at": {
+                    "$gte": today_start,
+                    "$lt": today_end
+                }
+            })
+            
+            async for mail in cursor:
+                reports_in_period = [
+                    report for report in mail.get("reported_by", [])
+                    if report.get("reported_at") and 
+                    today_start <= report["reported_at"] < today_end
+                ]
+                reports_today += len(reports_in_period)
+            
+            return {
+                "sent": mails_sent_today,
+                "revealed": revelations_today,
+                "reported": reports_today
+            }
+            
+        except PyMongoError as e:
+            logger.error(f"Erro ao obter estatísticas diárias: {e}")
+            return {"sent": 0, "revealed": 0, "reported": 0}
+    
+    async def get_mail_stats_total(self) -> Dict[str, Any]:
+        """
+        Obtém estatísticas totais do correio elegante.
+        
+        Returns:
+            Dict[str, Any]: Estatísticas totais.
+        """
+        try:
+            # Total de correios criados
+            total_mails = await self.db.correio_elegante.count_documents({})
+            
+            # Arrecadação total (R$ 2,00 por revelação confirmada)
+            total_revelations = await self.db.pix_payments.count_documents({
+                "status": "confirmed"
+            })
+            total_revenue = total_revelations * 2.0
+            
+            # Usuários únicos que enviaram correios
+            pipeline = [
+                {"$group": {"_id": "$sender_id"}},
+                {"$count": "unique_senders"}
+            ]
+            
+            result = await self.db.correio_elegante.aggregate(pipeline).to_list(length=1)
+            unique_senders = result[0]["unique_senders"] if result else 0
+            
+            # Correios por status
+            pipeline_status = [
+                {"$group": {"_id": "$status", "count": {"$sum": 1}}}
+            ]
+            
+            status_results = await self.db.correio_elegante.aggregate(pipeline_status).to_list(length=None)
+            status_counts = {item["_id"]: item["count"] for item in status_results}
+            
+            return {
+                "total_mails": total_mails,
+                "total_revenue": total_revenue,
+                "unique_senders": unique_senders,
+                "pending": status_counts.get("pending", 0),
+                "published": status_counts.get("published", 0),
+                "expired": status_counts.get("expired", 0)
+            }
+            
+        except PyMongoError as e:
+            logger.error(f"Erro ao obter estatísticas totais: {e}")
+            return {
+                "total_mails": 0,
+                "total_revenue": 0.0,
+                "unique_senders": 0,
+                "pending": 0,
+                "published": 0,
+                "expired": 0
+            }
+    
+    async def get_mail_stats_weekly(self) -> Dict[str, int]:
+        """
+        Obtém estatísticas da última semana.
+        
+        Returns:
+            Dict[str, int]: Estatísticas da semana.
+        """
+        try:
+            # Últimos 7 dias
+            week_start = datetime.now() - timedelta(days=7)
+            
+            # Correios da semana
+            mails_week = await self.db.correio_elegante.count_documents({
+                "created_at": {"$gte": week_start}
+            })
+            
+            # Revelações da semana
+            revelations_week = await self.db.pix_payments.count_documents({
+                "created_at": {"$gte": week_start},
+                "status": "confirmed"
+            })
+            
+            return {
+                "sent": mails_week,
+                "revealed": revelations_week
+            }
+            
+        except PyMongoError as e:
+            logger.error(f"Erro ao obter estatísticas semanais: {e}")
+            return {"sent": 0, "revealed": 0}
