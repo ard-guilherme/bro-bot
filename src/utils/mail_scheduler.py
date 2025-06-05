@@ -109,22 +109,19 @@ class MailScheduler:
             
             # Montar mensagem do correio
             mail_message = (
-                f"📬 **CORREIO ELEGANTE** 💌\n\n"
-                f"**Para:** @{recipient_username}\n\n"
-                f"💭 _**{message_text}**_\n\n"
+                f"📬 *CORREIO ELEGANTE* 💌💚\n\n"
+                f"*Para:* @{recipient_username}\n\n"
+                f"💭 *_{message_text}_*\n\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
                 f"_Mensagem anônima • Expira em 24h_\n\n"
-                f">💡 **Como interagir com este correio:**\n"
-                f">📱 _Clique no meu nome e inicie chat privado_\n"
-                f">\n"
-                f">🔍 **Descobrir remetente (R$ 2,00):**\n"
-                f">`/revelarcorreio {mail_id}`\n"
-                f">\n"
-                f">💌 **Responder anonimamente:**\n"
-                f">`/respondercorreio {mail_id}`\n"
-                f">\n"
-                f">🚨 **Denunciar conteúdo:**\n"
-                f">`/denunciarcorreio {mail_id}`"
+                f"💡 *Como interagir com este correio:*\n"
+                f"📱 _Clique no meu nome e inicie chat privado_\n\n"
+                f"🔍 *Descobrir remetente (R$ 2,00):*\n"
+                f"`/revelarcorreio {mail_id}`\n\n"
+                f"💌 *Responder anonimamente:*\n"
+                f"`/respondercorreio {mail_id}`\n\n"
+                f"🚨 *Denunciar conteúdo:*\n"
+                f"`/denunciarcorreio {mail_id}`"
             )
             
             # Enviar mensagem (sem botões)
