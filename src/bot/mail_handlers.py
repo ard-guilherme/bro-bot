@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 MAIL_MESSAGE, MAIL_RECIPIENT = range(2)
 
 # Estados do ConversationHandler para resposta anônima
-REPLY_MESSAGE = range(1)
+REPLY_MESSAGE = 2
 
 
 class MailHandlers:
@@ -496,20 +496,20 @@ class MailHandlers:
                 logger.error(f"Erro ao notificar usuário sobre PIX negado: {e}")
     
     @staticmethod
-    async def responder_correio_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Comando /respondercorreio - Inicia resposta anônima."""
+    async def responder_correio_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Comando /respondercorreio - Versão simples sem ConversationHandler."""
         if update.effective_chat.type != 'private':
             await update.message.reply_text(
                 "❌ Este comando só pode ser usado em chat privado."
             )
-            return ConversationHandler.END
+            return
         
         if not context.args:
             await update.message.reply_text(
                 "❌ Use: `/respondercorreio <ID_da_mensagem>`",
                 parse_mode=ParseMode.MARKDOWN
             )
-            return ConversationHandler.END
+            return
         
         mail_id = context.args[0]
         
@@ -519,26 +519,31 @@ class MailHandlers:
             await update.message.reply_text(
                 "❌ Correio não encontrado."
             )
-            return ConversationHandler.END
+            return
         
-        # Armazenar ID do correio no contexto
-        context.user_data['reply_mail_id'] = mail_id
-        context.user_data['reply_sender_id'] = update.effective_user.id
-        context.user_data['reply_sender_name'] = update.effective_user.full_name
+        recipient_username = mail_data.get('recipient_username', 'N/A')
+        message_preview = mail_data.get('message_text', '')[:100] + "..." if len(mail_data.get('message_text', '')) > 100 else mail_data.get('message_text', '')
+        
+        # Criar botão inline para continuar
+        keyboard = [
+            [InlineKeyboardButton("✏️ Escrever Resposta", callback_data=f"write_reply_{mail_id}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
         
         await update.message.reply_text(
-            "💌 **Resposta Anônima**\n\n"
-            "Digite sua resposta para o remetente do correio:\n"
-            "_(Será enviada anonimamente)_",
+            f"💌 **RESPOSTA ANÔNIMA**\n\n"
+            f"**Você vai responder ao correio:**\n\n"
+            f"👤 **Para:** @{recipient_username}\n"
+            f"💭 **Mensagem:** _{message_preview}_\n\n"
+            f"📋 **ID:** `{mail_id}`\n\n"
+            f"Clique no botão abaixo para escrever sua resposta:",
             parse_mode=ParseMode.MARKDOWN,
-            reply_markup=ForceReply(selective=True)
+            reply_markup=reply_markup
         )
-        
-        return REPLY_MESSAGE
     
     @staticmethod
     async def denunciar_correio_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Comando /denunciarcorreio - Denuncia um correio."""
+        """Comando /denunciarcorreio - Mostra confirmação antes de denunciar um correio."""
         if update.effective_chat.type != 'private':
             await update.message.reply_text(
                 "❌ Este comando só pode ser usado em chat privado."
@@ -564,26 +569,240 @@ class MailHandlers:
             )
             return
         
+        # Verificar se já denunciou antes
+        # (implementar verificação se necessário - por enquanto apenas mostrar confirmação)
+        
+        # Mostrar confirmação de denúncia
+        recipient_username = mail_data.get('recipient_username', 'N/A')
+        message_preview = mail_data.get('message_text', '')[:50] + "..." if len(mail_data.get('message_text', '')) > 50 else mail_data.get('message_text', '')
+        
+        confirmation_text = (
+            f"🚨 **CONFIRMAÇÃO DE DENÚNCIA** 🚨\n\n"
+            f"**Você está prestes a denunciar um correio:**\n\n"
+            f"📬 **ID:** `{mail_id}`\n"
+            f"👤 **Para:** @{recipient_username}\n"
+            f"💭 **Prévia:** _{message_preview}_\n\n"
+            f"⚠️ **Importante:**\n"
+            f"• Denúncias são para conteúdo inapropriado\n"
+            f"• Correios com 3+ denúncias são removidos automaticamente\n"
+            f"• Denúncias falsas podem resultar em restrições\n\n"
+            f"❓ **Tem certeza que deseja denunciar este correio?**"
+        )
+        
+        keyboard = [
+            [
+                InlineKeyboardButton("🚨 Sim, denunciar", callback_data=f"report_confirm_{mail_id}"),
+                InlineKeyboardButton("❌ Cancelar", callback_data=f"report_cancel_{mail_id}")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            confirmation_text,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
+    
+    @staticmethod
+    async def handle_report_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Processa a confirmação de denúncia de correio."""
+        query = update.callback_query
+        await query.answer()
+        
+        if query.data.startswith("report_cancel_"):
+            await query.edit_message_text(
+                "❌ **Denúncia cancelada.**\n\n"
+                "Obrigado por usar o sistema de forma responsável! 👍",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        if not query.data.startswith("report_confirm_"):
+            return
+        
+        mail_id = query.data.replace("report_confirm_", "")
+        user_id = query.from_user.id
+        user_name = query.from_user.full_name
+        
+        # Verificar se o correio ainda existe
+        mail_data = await mongodb_client.get_mail_by_id(mail_id)
+        if not mail_data:
+            await query.edit_message_text(
+                "❌ **Erro:** Correio não encontrado.\n\n"
+                "O correio pode ter sido removido ou expirado.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
         # Registrar denúncia
         reported = await mongodb_client.report_mail(mail_id, user_id, user_name)
         
         if reported:
-            await update.message.reply_text(
+            await query.edit_message_text(
                 "✅ **Denúncia registrada com sucesso!**\n\n"
                 f"🚨 **ID do correio:** `{mail_id}`\n"
                 f"📝 **Denunciado por:** {user_name}\n\n"
-                "O correio será analisado pelos administradores.\n"
-                "Correios com 3+ denúncias são removidos automaticamente.",
+                "📋 **O que acontece agora:**\n"
+                "• O correio será analisado pelos administradores\n"
+                "• Correios com 3+ denúncias são removidos automaticamente\n"
+                "• Você será notificado sobre o resultado\n\n"
+                "🙏 Obrigado por ajudar a manter a comunidade segura!",
                 parse_mode=ParseMode.MARKDOWN
             )
+            
+            # Log para administradores
+            logger.info(f"Correio {mail_id} denunciado por {user_name} (ID: {user_id})")
+        else:
+            await query.edit_message_text(
+                "❌ **Erro ao registrar denúncia**\n\n"
+                "Possíveis motivos:\n"
+                "• Você já denunciou este correio antes\n"
+                "• Erro interno do sistema\n\n"
+                "Tente novamente em alguns minutos.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+
+    @staticmethod
+    async def handle_write_reply_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handler para o botão de escrever resposta."""
+        query = update.callback_query
+        await query.answer()
+        
+        # Extrair o mail_id do callback_data
+        mail_id = query.data.replace("write_reply_", "")
+        
+        # Verificar se o correio ainda existe
+        mail_data = await mongodb_client.get_mail_by_id(mail_id)
+        if not mail_data:
+            await query.edit_message_text(
+                "❌ **Erro:** Correio não encontrado.\n\n"
+                "O correio pode ter sido removido ou expirado.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        # Armazenar informações da resposta no user_data
+        context.user_data['replying_to_mail'] = mail_id
+        context.user_data['reply_sender_id'] = query.from_user.id
+        context.user_data['reply_sender_name'] = query.from_user.full_name
+        
+        await query.edit_message_text(
+            f"💌 **RESPOSTA ANÔNIMA ATIVA**\n\n"
+            f"📬 **ID do correio:** `{mail_id}`\n\n"
+            f"✍️ **Agora digite sua resposta aqui no chat:**\n"
+            f"_(Sua próxima mensagem será enviada como resposta anônima)_\n\n"
+            f"📝 **Regras:**\n"
+            f"• Mínimo 5 caracteres\n"
+            f"• Máximo 300 caracteres\n"
+            f"• Sem conteúdo ofensivo\n\n"
+            f"💡 **Dica:** Digite sua mensagem normalmente, ela será processada automaticamente!",
+            parse_mode=ParseMode.MARKDOWN
+        )
+
+    @staticmethod
+    async def handle_simple_reply_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Processa mensagem de resposta anônima simples."""
+        # Verificar se o usuário está no modo de resposta
+        if 'replying_to_mail' not in context.user_data:
+            return  # Não está respondendo nada
+        
+        if update.effective_chat.type != 'private':
+            return  # Só funciona em chat privado
+        
+        mail_id = context.user_data['replying_to_mail']
+        reply_text = update.message.text
+        sender_id = context.user_data['reply_sender_id']
+        sender_name = context.user_data['reply_sender_name']
+        
+        logger.info(f"🔍 Processando resposta simples de {sender_id} para correio {mail_id}")
+        
+        # Validações da mensagem
+        if not reply_text or len(reply_text.strip()) < 5:
+            await update.message.reply_text(
+                "❌ Resposta muito curta. Digite pelo menos 5 caracteres."
+            )
+            return
+        
+        if len(reply_text) > 300:
+            await update.message.reply_text(
+                "❌ Resposta muito longa. Máximo de 300 caracteres."
+            )
+            return
+        
+        # Filtro de conteúdo
+        if await MailHandlers._contains_offensive_content(reply_text):
+            await update.message.reply_text(
+                "❌ Sua resposta contém conteúdo inapropriado."
+            )
+            return
+        
+        # Buscar dados do correio original
+        mail_data = await mongodb_client.get_mail_by_id(mail_id)
+        if not mail_data:
+            await update.message.reply_text(
+                "❌ Correio não encontrado."
+            )
+            # Limpar estado
+            context.user_data.pop('replying_to_mail', None)
+            context.user_data.pop('reply_sender_id', None)
+            context.user_data.pop('reply_sender_name', None)
+            return
+        
+        original_sender_id = mail_data['sender_id']
+        original_sender_name = mail_data['sender_name']
+        recipient_username = mail_data['recipient_username']
+        
+        # Salvar resposta no banco
+        success = await mongodb_client.send_mail_reply(
+            mail_id, reply_text, sender_id, sender_name
+        )
+        
+        if success:
+            # Enviar resposta diretamente para o remetente original
+            try:
+                reply_message = (
+                    f"💌 **RESPOSTA ANÔNIMA** 💌\n\n"
+                    f"**Seu correio para @{recipient_username} recebeu uma resposta:**\n\n"
+                    f"💭 _{reply_text}_\n\n"
+                    f"━━━━━━━━━━━━━━━━━━━━\n"
+                    f"_Resposta anônima • Não é possível identificar quem respondeu_"
+                )
+                
+                await context.bot.send_message(
+                    chat_id=original_sender_id,
+                    text=reply_message,
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                
+                await update.message.reply_text(
+                    "✅ **Resposta enviada com sucesso!**\n\n"
+                    f"📬 Sua resposta foi entregue anonimamente para o remetente**.\n"
+                    f"💌 Ele receberá sua mensagem em chat privado.\n\n"
+                    f"🎯 Para responder outro correio, use `/respondercorreio <ID>`",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                
+            except Exception as e:
+                logger.error(f"Erro ao enviar resposta anônima para {original_sender_id}: {e}")
+                await update.message.reply_text(
+                    "✅ Resposta salva com sucesso!\n"
+                    "❌ Mas houve erro ao notificar o remetente original.\n"
+                    "A resposta ficará registrada no sistema."
+                )
         else:
             await update.message.reply_text(
-                "❌ Erro ao registrar denúncia ou você já denunciou este correio."
+                "❌ Erro ao enviar resposta. Tente novamente."
             )
-    
+        
+        # Limpar estado de resposta
+        context.user_data.pop('replying_to_mail', None)
+        context.user_data.pop('reply_sender_id', None)
+        context.user_data.pop('reply_sender_name', None)
+
     @staticmethod
     async def handle_reply_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Processa mensagem de resposta anônima."""
+
         reply_text = update.message.text
         
         if not reply_text or len(reply_text.strip()) < 5:
@@ -644,9 +863,9 @@ class MailHandlers:
                 )
                 
                 await update.message.reply_text(
-                    "✅ **Resposta enviada com sucesso!**\n\n"
-                    f"📬 Sua resposta foi entregue anonimamente para **{original_sender_name}**.\n"
-                    f"💌 Eles receberão sua mensagem em chat privado.",
+                    f"✅ **Resposta enviada com sucesso!**\n\n"
+                    f"📬 Sua resposta foi entregue anonimamente para o remetente.\n"
+                    f"💌 Ele receberá sua mensagem em chat privado.",
                     parse_mode=ParseMode.MARKDOWN
                 )
                 
@@ -748,10 +967,10 @@ class MailHandlers:
 def get_mail_conversation_handler():
     """Retorna o ConversationHandler para correio elegante."""
     return ConversationHandler(
-        entry_points=[CommandHandler("correio", MailHandlers.correio_command)],
+        entry_points=[CommandHandler("correio", MailHandlers.correio_command, filters=filters.ChatType.PRIVATE)],
         states={
-            MAIL_MESSAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, MailHandlers.handle_mail_message)],
-            MAIL_RECIPIENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, MailHandlers.handle_mail_recipient)]
+            MAIL_MESSAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, MailHandlers.handle_mail_message)],
+            MAIL_RECIPIENT: [MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, MailHandlers.handle_mail_recipient)]
         },
         fallbacks=[CommandHandler("cancelar", MailHandlers.cancel_conversation)]
     )
@@ -760,9 +979,9 @@ def get_mail_conversation_handler():
 def get_reply_conversation_handler():
     """Retorna o ConversationHandler para resposta anônima."""
     return ConversationHandler(
-        entry_points=[CommandHandler("respondercorreio", MailHandlers.responder_correio_command)],
+        entry_points=[CommandHandler("respondercorreio", MailHandlers.responder_correio_command, filters=filters.ChatType.PRIVATE)],
         states={
-            REPLY_MESSAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, MailHandlers.handle_reply_message)]
+            REPLY_MESSAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, MailHandlers.handle_reply_message)]
         },
         fallbacks=[CommandHandler("cancelar", MailHandlers.cancel_conversation)]
     )

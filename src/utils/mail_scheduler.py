@@ -56,10 +56,18 @@ class MailScheduler:
     
     async def _run_scheduler(self, interval_minutes: int) -> None:
         """Loop principal do agendador."""
+        logger.info(f"Agendador iniciado. Próxima execução em {interval_minutes} minutos.")
+        
         while self.is_running:
             try:
-                await self._process_pending_mails()
+                # Aguardar o intervalo ANTES de processar (não imediatamente)
                 await asyncio.sleep(interval_minutes * 60)  # Converter para segundos
+                
+                # Verificar se ainda está rodando após o sleep
+                if not self.is_running:
+                    break
+                    
+                await self._process_pending_mails()
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -111,24 +119,35 @@ class MailScheduler:
             mail_message = (
                 f"📬 *CORREIO ELEGANTE* 💌💚\n\n"
                 f"*Para:* @{recipient_username}\n\n"
-                f"💭 *_{message_text}_*\n\n"
+                f"💭 _{message_text}_\n\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
                 f"_Mensagem anônima • Expira em 24h_\n\n"
-                f"💡 *Como interagir com este correio:*\n"
-                f"📱 _Clique no meu nome e inicie chat privado_\n\n"
-                f"🔍 *Descobrir remetente (R$ 2,00):*\n"
-                f"`/revelarcorreio {mail_id}`\n\n"
-                f"💌 *Responder anonimamente:*\n"
-                f"`/respondercorreio {mail_id}`\n\n"
-                f"🚨 *Denunciar conteúdo:*\n"
-                f"`/denunciarcorreio {mail_id}`"
+                f"💡 *Interaja com este correio usando os botões abaixo:*"
             )
             
-            # Enviar mensagem (sem botões)
+            # Criar botões para interagir com o correio
+            bot_username = Config.get_bot_username()
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton(
+                    "🔍 Descobrir remetente (R$ 2,00)", 
+                    url=f"https://t.me/{bot_username}?start=revelar_{mail_id}"
+                )],
+                [InlineKeyboardButton(
+                    "💌 Responder anonimamente", 
+                    url=f"https://t.me/{bot_username}?start=responder_{mail_id}"
+                )],
+                [InlineKeyboardButton(
+                    "🚨 Denunciar conteúdo", 
+                    url=f"https://t.me/{bot_username}?start=denunciar_{mail_id}"
+                )]
+            ])
+            
+            # Enviar mensagem com botão
             sent_message = await self.bot.send_message(
                 chat_id=chat_id,
                 text=mail_message,
-                parse_mode=ParseMode.MARKDOWN
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=keyboard
             )
             
             # Marcar como publicado no banco de dados
@@ -156,18 +175,27 @@ class MailScheduler:
 mail_scheduler: Optional[MailScheduler] = None
 
 
-async def start_mail_scheduler(bot: Bot, interval_minutes: int = 60) -> None:
+async def start_mail_scheduler(bot: Bot, interval_minutes: int = 60, process_immediately: bool = False) -> None:
     """
     Inicia o agendador de correio global.
     
     Args:
         bot (Bot): Instância do bot.
         interval_minutes (int): Intervalo em minutos.
+        process_immediately (bool): Se True, processa correios pendentes imediatamente na inicialização.
     """
     global mail_scheduler
     
     if mail_scheduler is None:
         mail_scheduler = MailScheduler(bot)
+    
+    # Se solicitado, processar correios pendentes imediatamente
+    if process_immediately:
+        logger.info("Processando correios pendentes imediatamente na inicialização...")
+        try:
+            await mail_scheduler._process_pending_mails()
+        except Exception as e:
+            logger.error(f"Erro ao processar correios pendentes na inicialização: {e}")
     
     await mail_scheduler.start(interval_minutes)
 

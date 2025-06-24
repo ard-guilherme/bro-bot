@@ -174,7 +174,7 @@ class AnthropicClient:
 
 Um usuário chamado '{user_name}' acabou de fazer um check-in especial (que vale o dobro de pontos) e incluiu a seguinte mensagem: "{{mensagem_de_checkin}}"
 
-Sua tarefa é gerar uma resposta **CURTA** (máximo 1-2 frases, idealmente apenas alguns emojis ou palavras) para a mensagem dele. A resposta deve:
+Sua tarefa é gerar uma resposta **CURTA** (máximo 1-3 frases, idealmente apenas alguns emojis ou palavras) para a mensagem dele. A resposta deve:
 1. Ser engraçada e/ou motivacional, com o seu tom característico.
 2. Reconhecer o esforço ou o conteúdo da mensagem do usuário de forma leve.
 3. Ser respeitosa.
@@ -182,14 +182,7 @@ Sua tarefa é gerar uma resposta **CURTA** (máximo 1-2 frases, idealmente apena
 5. **NÃO** ser genérica. Tente se conectar com o que o usuário escreveu.
 6. Variar as respostas, evite ser repetitivo.
 7. Não use necessariamente o nome do usuário na resposta.
-
-Exemplos de boas respostas:
-- "Boa, {user_name}! Mandou bem demais! 💪"
-- "Isso aí, {user_name}! Shape tá vindo! 🔥"
-- "É O SUPER CHECK-IN!! Dale, {user_name}! 🚀"
-- "{user_name} representando! 👊✨"
-- "Aí sim, {user_name}! Que energia! ⚡"
-- "Só vejo progresso aí, {user_name}! 😎"
+8. Quebre parágrafos quando necessário.
 
 Agora, gere a resposta para a mensagem de '{user_name}': "{{mensagem_de_checkin}}"
 

@@ -219,7 +219,8 @@ async def main_async():
             application.add_handler(CommandHandler("checkin", checkin_command, filters=owner_filter))
             application.add_handler(CommandHandler("checkinplus", checkinplus_command, filters=owner_filter))
             application.add_handler(CommandHandler("endcheckin", endcheckin_command, filters=owner_filter))
-            application.add_handler(CommandHandler("checkinscore", checkinscore_command, filters=owner_filter))
+            # Comando checkinscore é público para todos os usuários
+            application.add_handler(CommandHandler("checkinscore", checkinscore_command))
             application.add_handler(CommandHandler("confirmcheckin", confirmcheckin_command, filters=owner_filter))
             
             # Adiciona handlers para comandos de blacklist (apenas para o proprietário)
@@ -234,11 +235,14 @@ async def main_async():
                 pattern=r'^rmblacklist_'
             ))
             
-            # Adiciona handlers para correio elegante
+            # Adiciona conversation handlers para correio elegante primeiro (prioridade máxima)
             application.add_handler(get_mail_conversation_handler())
             application.add_handler(get_reply_conversation_handler())
-            application.add_handler(CommandHandler("revelarcorreio", MailHandlers.revelar_correio_command))
-            application.add_handler(CommandHandler("denunciarcorreio", MailHandlers.denunciar_correio_command))
+            
+            # Adiciona handlers para comandos individuais de correio elegante
+            application.add_handler(CommandHandler("revelarcorreio", MailHandlers.revelar_correio_command, filters=filters.ChatType.PRIVATE))
+            application.add_handler(CommandHandler("denunciarcorreio", MailHandlers.denunciar_correio_command, filters=filters.ChatType.PRIVATE))
+            application.add_handler(CommandHandler("respondercorreio", MailHandlers.responder_correio_command, filters=filters.ChatType.PRIVATE))
             
             # Adiciona handlers para botões do correio elegante
             application.add_handler(CallbackQueryHandler(
@@ -253,12 +257,18 @@ async def main_async():
                 MailHandlers.handle_mail_buttons,
                 pattern=r'^mail_(reveal_|reply_|report_)'
             ))
-            
-
+            application.add_handler(CallbackQueryHandler(
+                MailHandlers.handle_report_confirmation,
+                pattern=r'^report_(confirm_|cancel_)'
+            ))
+            application.add_handler(CallbackQueryHandler(
+                MailHandlers.handle_write_reply_button,
+                pattern=r'^write_reply_'
+            ))
             
             # Handler para confirmação de PIX pelo proprietário
             application.add_handler(CallbackQueryHandler(
-                MailHandlers.handle_mail_buttons,
+                MailHandlers.handle_owner_pix_confirmation,
                 pattern=r'^(owner_yes_|owner_no_)'
             ))
             
@@ -271,7 +281,14 @@ async def main_async():
             application.add_handler(CommandHandler("monitor", monitor_command, filters=only_owner_filter))
             application.add_handler(CommandHandler("unmonitor", unmonitor_command, filters=only_owner_filter))
             
+            # Adiciona handler para respostas anônimas simples (prioridade alta)
+            application.add_handler(MessageHandler(
+                filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
+                MailHandlers.handle_simple_reply_message
+            ))
+            
             # Adiciona handler para menções ao bot (sem restrição de usuário)
+            # IMPORTANTE: Deve vir APÓS os ConversationHandlers para não interferir
             application.add_handler(MessageHandler(
                 (filters.TEXT & ~filters.COMMAND & (filters.Entity("mention") | filters.REPLY)),
                 handle_mention
@@ -298,7 +315,17 @@ async def main_async():
                 )
             )
             
-            # Adiciona handler para monitorar mensagens de texto
+            # Adiciona handler para mensagens não autorizadas 
+            # Exclui comandos e mensagens de conversação do sistema de correio
+            # Este handler deve vir ANTES do monitored_message para não interferir
+            application.add_handler(
+                MessageHandler(
+                    (~owner_filter) & filters.TEXT & filters.COMMAND & (~filters.Regex(r'^/(correio|revelarcorreio|respondercorreio|denunciarcorreio|checkinscore)')),
+                    unauthorized_message_handler
+                )
+            )
+            
+            # Adiciona handler para monitorar mensagens de texto (apenas para o proprietário)
             application.add_handler(
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND & owner_filter,
@@ -306,10 +333,7 @@ async def main_async():
                 )
             )
             
-            # Adiciona handler para mensagens não autorizadas
-            application.add_handler(
-                MessageHandler(~owner_filter, unauthorized_message_handler)
-            )
+
             
             # Adiciona handler para erros
             application.add_error_handler(error_handler)

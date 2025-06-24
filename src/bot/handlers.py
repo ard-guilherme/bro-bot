@@ -168,25 +168,73 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     
     # Verifica se é em chat privado
     if chat_type == 'private':
-        # Apresentação completa para chat privado
-        welcome_message = (
-            f"🏋️‍♂️ **Olá {user.first_name}! Bem-vindo ao GYM NATION Bot!** 💪\n\n"
-            "Eu sou seu assistente fitness e social para o grupo **GYM NATION**! 🥇\n\n"
-            "🔥 **O que posso fazer por você:**\n\n"
-            "📬 **Correio Elegante Anônimo**\n"
-            "• Envie mensagens anônimas para membros do grupo\n"
-            "• Responda anonimamente a correios recebidos\n"
-            "• Revele remetentes por apenas R$2 via Pix\n\n"
-            "📊 **Rankings e Estatísticas**\n"
-            "• Consulte o ranking de check-ins do grupo\n"
-            "• Acompanhe sua participação na comunidade\n\n"
-            "💬 **Como usar:**\n"
-            "• Use `/correio` para enviar uma mensagem anônima\n"
-            "• Use `/checkinscore` para ver o ranking\n"
-            "• Use `/help` para ver todos os comandos\n\n"
-            "🎯 **Dica:** Todos os comandos funcionam apenas aqui no chat privado comigo!\n\n"
-            "Pronto para começar? Digite `/help` para ver todas as opções! 🚀"
-        )
+        # Verificar se há parâmetros no comando (ex: /start revelar_123)
+        start_param = None
+        if context.args:
+            start_param = context.args[0].lower()
+        
+        # Detectar ações específicas do correio elegante
+        if start_param and start_param.startswith('revelar_'):
+            mail_id = start_param.replace('revelar_', '')
+            # Executar automaticamente o comando revelar correio
+            context.args = [mail_id]
+            from src.bot.mail_handlers import MailHandlers
+            await MailHandlers.revelar_correio_command(update, context)
+            return
+            
+        elif start_param and start_param.startswith('responder_'):
+            mail_id = start_param.replace('responder_', '')
+            # Executar automaticamente o comando responder correio
+            context.args = [mail_id]
+            from src.bot.mail_handlers import MailHandlers
+            await MailHandlers.responder_correio_command(update, context)
+            return
+            
+        elif start_param and start_param.startswith('denunciar_'):
+            mail_id = start_param.replace('denunciar_', '')
+            # Executar automaticamente o comando denunciar correio
+            context.args = [mail_id]
+            from src.bot.mail_handlers import MailHandlers
+            await MailHandlers.denunciar_correio_command(update, context)
+            return
+        
+        # Se veio através do botão do correio elegante (geral)
+        elif start_param == 'correio':
+            welcome_message = (
+                f"📬 **Bem-vindo ao Correio Elegante, {user.first_name}!** 💌\n\n"
+                "Você chegou aqui através de um correio elegante no grupo! 🎯\n\n"
+                "🌟 **O que você pode fazer:**\n\n"
+                "📝 **Enviar mensagem anônima:**\n"
+                "• Use `/correio` para criar uma nova mensagem\n\n"
+                "🔍 **Descobrir quem enviou:**\n"
+                "• Use `/revelarcorreio [ID]` + Pix R$2,00\n\n"
+                "💌 **Responder anonimamente:**\n"
+                "• Use `/respondercorreio [ID]`\n\n"
+                "🚨 **Denunciar conteúdo inapropriado:**\n"
+                "• Use `/denunciarcorreio [ID]`\n\n"
+                "💡 **Dica:** Encontre o ID do correio na mensagem do grupo!\n\n"
+                "Pronto para interagir? Use `/correio` para começar! ✨"
+            )
+        else:
+            # Apresentação completa para chat privado normal
+            welcome_message = (
+                f"🏋️‍♂️ **Olá {user.first_name}! Bem-vindo ao GYM NATION Bot!** 💪\n\n"
+                "Eu sou seu assistente fitness e social para o grupo **GYM NATION**! 🥇\n\n"
+                "🔥 **O que posso fazer por você:**\n\n"
+                "📬 **Correio Elegante Anônimo**\n"
+                "• Envie mensagens anônimas para membros do grupo\n"
+                "• Responda anonimamente a correios recebidos\n"
+                "• Revele remetentes por apenas R$2 via Pix\n\n"
+                "📊 **Rankings e Estatísticas**\n"
+                "• Consulte o ranking de check-ins do grupo\n"
+                "• Acompanhe sua participação na comunidade\n\n"
+                "💬 **Como usar:**\n"
+                "• Use `/correio` para enviar uma mensagem anônima\n"
+                "• Use `/checkinscore` para ver o ranking\n"
+                "• Use `/help` para ver todos os comandos\n\n"
+                "🎯 **Dica:** Todos os comandos funcionam apenas aqui no chat privado comigo!\n\n"
+                "Pronto para começar? Digite `/help` para ver todas as opções! 🚀"
+            )
         
         await update.message.reply_text(
             welcome_message,
@@ -1532,37 +1580,49 @@ async def rules_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     logger.info(f"Usuário {update.effective_user.id} solicitou as regras do grupo")
     
     rules_message = (
-        "📌 *REGRAS DO GYM NATION*🏋️‍♂️🔥\n\n"
-        "*1️⃣ Respeito acima de tudo*\n"
-        "Somos um grupo de apoio e motivação fitness. Valorize e respeite os membros. "
-        "Zoação saudável é bem-vinda, mas ataques pessoais ou desrespeito não serão tolerados.\n\n"
-        
-        "*2️⃣ Ambiente de camaradagem*\n"
-        "Aqui é como se estivéssemos conversando com os bros na academia! "
-        "Incentivamos a interação e a troca de experiências. Participe das conversas, "
-        "ajude, motive e compartilhe sua jornada.\n\n"
-        
-        "*3️⃣ Apenas +18, sem mídia explícita*\n"
-        "O grupo é para maiores de 18 anos, mas não permitimos mídia sexual explícita. "
-        "Fotos e vídeos que valorizem o shape masculino são bem-vindos, desde que dentro "
-        "dos limites do respeito.\n\n"
-        
-        "*4️⃣ Sem pervs!*\n"
-        "Este não é um grupo para fetiches ou conteúdos de cunho exclusivamente sexual. "
-        "Se for esse seu objetivo, procure outro lugar.\n\n"
-        
-        "*5️⃣ Flertes e brincadeiras permitidos*\n"
-        "Mensagens de duplo sentido, piadas e flertes são aceitos, desde que não sejam "
-        "ofensivos ou invasivos. Saiba a diferença entre descontração e desrespeito.\n\n"
-        
-        "*6️⃣ Sem spam e divulgação*\n"
-        "Nada de links aleatórios, autopromoção sem permissão ou flood de mensagens sem sentido.\n\n"
-        
-        "*7️⃣ Administração tem a palavra final*\n"
-        "O descumprimento das regras pode resultar em advertência, mute ou banimento. "
-        "Se tiver dúvidas, chame um admin.\n\n"
-        
-        "💪 *Bora crescer juntos, apoiar os brothers e manter o shape em dia!*"
+        "🔱 <b>CÓDIGO DE CONDUTA | GYM NATION</b> 🔱\n"
+        "<i>\"Onde o ferro encontra a irmandade\"</i>\n\n"
+        "━━━━━━━━━━━━━━\n"
+        "🎯 <b>PILARES FUNDAMENTAIS</b>\n\n"
+        "<b>RESPEITO SUPREMO</b> 🤝\n"
+        "Zoeira é combustível, desrespeito é veneno. Atacar físico, personalidade ou jornada alheia = passaporte direto pro ban. Aqui celebramos diferenças, não as destruímos.\n\n"
+        "<b>BROTHERHOOD CODE</b> 👥\n"
+        "Não somos apenas um grupo, somos uma irmandade. Apoie, motive, compartilhe conhecimento. Seja o cara que você gostaria de ter ao seu lado no treino.\n\n"
+        "━━━━━━━━━━━━━━\n"
+        "📸 <b>PROTOCOLO VISUAL</b>\n\n"
+        "<b>SHAPE SHOWCASE</b> ✅\n"
+        "Progresso merece ser celebrado! Fotos de físico são bem-vindas, mas com classe:\n\n"
+        "<b>CÓDIGO DE VESTIMENTA</b> 👕\n"
+        "- Mínimo obrigatório: Cueca sempre\n"
+        "- Contorno do \"amigão\" aparecendo = nudez proibida\n"
+        "- Rego à mostra = nudez proibida\n"
+        "- Regra de ouro: Se sua mãe não aprovaria, não poste\n\n"
+        "<b>ZERO MONOTONIA</b> 🚫\n"
+        "Mesma foto = criatividade zero. Renove seu conteúdo, surpreenda a galera.\n\n"
+        "━━━━━━━━━━━━━━\n"
+        "⚡️ <b>TERRITÓRIO LIVRE DE:</b>\n\n"
+        "🚨 <b>NUDES & CONTEÚDO SEXUAL</b>\n"
+        "Não somos OnlyFans. Sensualidade ≠ vulgaridade.\n\n"
+        "🚨 <b>BAIT MASTERS</b>\n"
+        "\"Chama PV\", vendas disfarçadas, iscas pra atenção = tática de amador.\n\n"
+        "🚨 <b>SPAM LORDS</b>\n"
+        "Flood, links duvidosos, autopromoção não autorizada.\n\n"
+        "━━━━━━━━━━━━━━\n"
+        "💥 <b>CÓDIGO DE INTERAÇÃO</b>\n\n"
+        "<b>FLERTE INTELIGENTE</b> 😏💚\n"
+        "Charme e zoeira fazem parte, mas leia o ambiente. Bom senso é sexy.\n\n"
+        "<b>TRANSPARÊNCIA TOTAL</b> 💎\n"
+        "Dúvidas? Questionamentos? Fale aberto ou procure a moderação.\n\n"
+        "━━━━━━━━━━━━━━\n"
+        "🤖 <b>SISTEMA BLACKLIST</b>\n\n"
+        "O grupo é monitorado 24/7. Conteúdo fora das regras = <b>BLACKLIST</b>\n\n"
+        "🚨 <b>ALERTA VERMELHO:</b> Bot notifica o grupo sobre violações\n"
+        "📊 <b>HISTÓRICO PERMANENTE:</b> Toda infração fica registrada\n"
+        "⚖️ <b>QUER SAIR DA LISTA?</b> Chame um ADM\n\n"
+        "<i>O sistema não dorme, não falha, não perdoa repetições.</i>\n\n"
+        "━━━━━━━━━━━━━━\n"
+        "🔥 <b>MISSÃO ACEITA?</b>\n\n"
+        "Bem-vindo ao território onde o shape cresce junto com o caráter 💚"
     )
     
     # Tenta deletar a mensagem de comando
@@ -1580,7 +1640,7 @@ async def rules_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=rules_message,
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 async def admin_correio_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
